@@ -48,6 +48,7 @@ class Mapping(BaseModel):
     target_app: Optional[str] = None  # process name e.g. "chrome.exe", or "__focused__", or "__master__"
     params: Dict[str, Any] = Field(default_factory=dict)
     label: Optional[str] = None
+    ui_alias: Optional[str] = None  # render this mapping at this UI position
     updated_at: str = Field(default_factory=now_iso)
 
 
@@ -56,6 +57,7 @@ class MappingUpsert(BaseModel):
     target_app: Optional[str] = None
     params: Dict[str, Any] = Field(default_factory=dict)
     label: Optional[str] = None
+    ui_alias: Optional[str] = None
 
 
 class AudioSession(BaseModel):
