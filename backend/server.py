@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -94,8 +94,16 @@ state: Dict[str, Any] = {
     "sessions": [],
     "sessions_updated": None,
     "midi_events": [],  # ring buffer
+    "browser_tabs": [],
+    "browser_updated": None,
+    "browser_connected": False,
 }
 MAX_EVENTS = 200
+
+# Active browser WebSocket connections
+import threading as _threading
+_browser_ws: List[WebSocket] = []
+_browser_lock = _threading.Lock()
 
 
 # ---------- Helpers ----------
@@ -259,6 +267,64 @@ async def get_midi_events(since: Optional[str] = None, limit: int = 50):
     if since:
         events = [e for e in events if e["timestamp"] > since]
     return {"events": events[-limit:], "latest": events[-1] if events else None}
+
+
+# ---------- Browser extension API ----------
+@api_router.get("/browser/tabs")
+async def list_browser_tabs():
+    return {
+        "connected": state["browser_connected"],
+        "tabs": state["browser_tabs"],
+        "updated": state["browser_updated"],
+    }
+
+
+@api_router.post("/browser/command")
+async def queue_browser_command(payload: Dict[str, Any]):
+    sent = 0
+    dead = []
+    for ws in list(_browser_ws):
+        try:
+            await ws.send_json(payload)
+            sent += 1
+        except Exception:
+            dead.append(ws)
+    if dead:
+        with _browser_lock:
+            for d in dead:
+                if d in _browser_ws:
+                    _browser_ws.remove(d)
+        if not _browser_ws:
+            state["browser_connected"] = False
+    return {"ok": True, "sent_to": sent}
+
+
+@app.websocket("/api/browser/ws")
+async def browser_ws_endpoint(ws: WebSocket):
+    await ws.accept()
+    with _browser_lock:
+        _browser_ws.append(ws)
+    state["browser_connected"] = True
+    try:
+        await ws.send_json({"type": "hello", "server": "launchkey-mixer-cloud"})
+        while True:
+            msg = await ws.receive_json()
+            t = msg.get("type")
+            if t == "tabs":
+                state["browser_tabs"] = msg.get("tabs", [])
+                state["browser_updated"] = now_iso()
+            elif t == "ping":
+                await ws.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning("Browser WS error: %s", e)
+    finally:
+        with _browser_lock:
+            if ws in _browser_ws:
+                _browser_ws.remove(ws)
+            if not _browser_ws:
+                state["browser_connected"] = False
 
 
 # ---------- Helper script download ----------

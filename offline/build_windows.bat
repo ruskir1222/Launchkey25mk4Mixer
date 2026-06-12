@@ -129,17 +129,42 @@ if errorlevel 1 (
 )
 
 echo.
-echo === [5/5] Packaging single-file exe with PyInstaller ===
+echo === [5/7] Packaging single-file exe with PyInstaller ===
 %PY% -m PyInstaller --noconfirm --clean LaunchkeyMixer.spec
 if errorlevel 1 goto :fail
 
 echo.
+echo === [6/7] Building Inno Setup installer (optional) ===
+where iscc >nul 2>&1
+if errorlevel 1 (
+    echo Inno Setup not found on PATH - skipping installer build.
+    echo Download from https://jrsoftware.org/isinfo.php to enable
+    echo automatic LaunchkeyMixerSetup.exe production.
+) else (
+    if not exist installer mkdir installer
+    call iscc /Qp installer.iss
+    if errorlevel 1 echo *** Inno Setup compile failed - exe still available in dist\ ***
+)
+
+echo.
+echo === [7/7] Code-signing executables (self-signed, optional) ===
+where powershell >nul 2>&1
+if errorlevel 1 (
+    echo PowerShell not found - skipping code-signing.
+) else (
+    powershell -ExecutionPolicy Bypass -File sign.ps1
+    if errorlevel 1 echo *** Signing failed - executables are still usable but unsigned ***
+)
+
+echo.
 echo ===============================================================
-echo  SUCCESS — your offline app is at:
-echo    %CD%\dist\LaunchkeyMixer.exe
+echo  SUCCESS - your offline app is at:
+echo    %CD%\dist\LaunchkeyMixer.exe          (single-file portable)
+if exist installer\LaunchkeyMixerSetup.exe (
+    echo    %CD%\installer\LaunchkeyMixerSetup.exe  (one-click installer)
+)
 echo ===============================================================
-echo  Double-click LaunchkeyMixer.exe to launch.
-echo  The dashboard opens automatically in your browser.
+echo  Double-click either to launch. The dashboard opens automatically.
 echo ===============================================================
 goto :eof
 

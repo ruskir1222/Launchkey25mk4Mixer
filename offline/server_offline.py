@@ -23,7 +23,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
-from fastapi import FastAPI, APIRouter, HTTPException, Response, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Response, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
@@ -229,8 +229,16 @@ state: Dict[str, Any] = {
     "sessions": [],
     "sessions_updated": None,
     "midi_events": [],
+    # Browser-extension state
+    "browser_tabs": [],          # list of {tabId, title, url, audible, muted, windowId, favIconUrl}
+    "browser_updated": None,
+    "browser_connected": False,
 }
 MAX_EVENTS = 200
+
+# Active browser WebSocket connections (one per extension instance)
+_browser_ws: "List[WebSocket]" = []
+_browser_lock = threading.Lock()
 
 
 # -----------------------------------------------------------------------------
@@ -418,6 +426,77 @@ def get_midi_events(since: Optional[str] = None, limit: int = 50):
     return {"events": events[-limit:], "latest": events[-1] if events else None}
 
 
+# ---------- Browser extension API ----------
+@api.get("/browser/tabs")
+def list_browser_tabs():
+    """Return the latest list of tabs reported by the browser extension."""
+    return {
+        "connected": state["browser_connected"],
+        "tabs": state["browser_tabs"],
+        "updated": state["browser_updated"],
+    }
+
+
+@api.post("/browser/command")
+async def queue_browser_command(payload: Dict[str, Any]):
+    """Helper / dashboard calls this to send a command to all connected
+    browser extensions. Payload examples:
+        {"type": "mute_tab", "selector": "tab:123", "muted": true}
+        {"type": "toggle_tab_mute", "selector": "regex:youtube"}
+        {"type": "focus_tab", "selector": "tab:456"}
+    """
+    sent = 0
+    dead = []
+    for ws in list(_browser_ws):
+        try:
+            await ws.send_json(payload)
+            sent += 1
+        except Exception:
+            dead.append(ws)
+    if dead:
+        with _browser_lock:
+            for d in dead:
+                if d in _browser_ws:
+                    _browser_ws.remove(d)
+        if not _browser_ws:
+            state["browser_connected"] = False
+    return {"ok": True, "sent_to": sent}
+
+
+@app.websocket("/api/browser/ws")
+async def browser_ws_endpoint(ws: WebSocket):
+    """Persistent WebSocket the browser extension keeps open.
+    Extension sends:  {"type":"tabs", "tabs":[...]}
+    Server sends back:{"type":"mute_tab", "selector":"...", "muted":true} etc.
+    """
+    await ws.accept()
+    with _browser_lock:
+        _browser_ws.append(ws)
+    state["browser_connected"] = True
+    log.info("Browser extension connected (%d total).", len(_browser_ws))
+    try:
+        await ws.send_json({"type": "hello", "server": "launchkey-mixer-offline"})
+        while True:
+            msg = await ws.receive_json()
+            t = msg.get("type")
+            if t == "tabs":
+                state["browser_tabs"] = msg.get("tabs", [])
+                state["browser_updated"] = now_iso()
+            elif t == "ping":
+                await ws.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        log.warning("Browser WS error: %s", e)
+    finally:
+        with _browser_lock:
+            if ws in _browser_ws:
+                _browser_ws.remove(ws)
+            if not _browser_ws:
+                state["browser_connected"] = False
+        log.info("Browser extension disconnected.")
+
+
 # ---------- Helper-script downloads (kept for parity; mostly unused in offline mode) ----------
 @api.get("/helper/script")
 def download_helper():
@@ -590,14 +669,43 @@ def run_with_tray(url: str):
 
 
 # -----------------------------------------------------------------------------
+# Single-instance lock
+# -----------------------------------------------------------------------------
+def acquire_single_instance(url: str) -> bool:
+    """Try to bind the configured port. If it's already taken, assume another
+    instance of Launchkey Mixer is running, open the dashboard tab on that
+    one, and exit. Returns True if we acquired (we're first); False otherwise.
+    """
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+    try:
+        s.bind(("127.0.0.1", PORT))
+    except OSError:
+        log.warning("Port %s already in use — another Launchkey Mixer instance "
+                    "is probably running. Opening its dashboard.", PORT)
+        _open_browser(url)
+        return False
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+    return True
+
+
+# -----------------------------------------------------------------------------
 # Entrypoint
 # -----------------------------------------------------------------------------
 def main():
+    url = f"http://127.0.0.1:{PORT}"
+    if not acquire_single_instance(url):
+        sys.exit(0)
+
     init_db()
     ensure_default_profile()
     mount_static()
 
-    url = f"http://127.0.0.1:{PORT}"
     log.info("Launchkey Mixer (offline) starting on %s", url)
     log.info("Data dir: %s", data_dir())
 

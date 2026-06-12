@@ -24,6 +24,9 @@ export const api = {
   helperSessions: () => client.get("/helper/sessions").then(r => r.data),
   helperEvents: (since) =>
     client.get("/helper/midi-events", { params: since ? { since } : {} }).then(r => r.data),
+
+  // browser extension
+  browserTabs: () => client.get("/browser/tabs").then(r => r.data),
 };
 
 export default api;

@@ -83,3 +83,8 @@ android-sdk/
 # Local secrets — never push to GitHub
 memory/github_pat.md
 
+
+# Environment files — never commit
+backend/.env
+frontend/.env
+*.env

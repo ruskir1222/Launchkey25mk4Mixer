@@ -18,6 +18,7 @@ export default function Dashboard() {
   const [activeProfile, setActiveProfile] = useState(null);
   const [mappings, setMappings] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [browserTabs, setBrowserTabs] = useState([]);
   const [helperStatus, setHelperStatus] = useState({ helper_connected: false });
   const [events, setEvents] = useState([]);
   const [midiLearn, setMidiLearn] = useState(false);
@@ -45,10 +46,15 @@ export default function Dashboard() {
     let stop = false;
     async function tick() {
       try {
-        const [st, ss] = await Promise.all([api.helperStatus(), api.helperSessions()]);
+        const [st, ss, bt] = await Promise.all([
+          api.helperStatus(),
+          api.helperSessions(),
+          api.browserTabs().catch(() => ({ tabs: [] })),
+        ]);
         if (stop) return;
         setHelperStatus(st);
         setSessions(ss.sessions || []);
+        setBrowserTabs(bt.tabs || []);
       } catch (e) { /* offline */ }
     }
     tick();
@@ -219,6 +225,7 @@ export default function Dashboard() {
           controlId={editingControl}
           mapping={mappingByControl[editingControl]}
           sessions={sessions}
+          browserTabs={browserTabs}
           onClose={() => setEditingControl(null)}
           onSave={(body) => { saveMapping(editingControl, body); setEditingControl(null); }}
           onDelete={() => { deleteMapping(editingControl); setEditingControl(null); }}

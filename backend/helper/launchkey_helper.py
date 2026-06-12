@@ -183,6 +183,48 @@ def list_sessions() -> List[Dict[str, Any]]:
     return dedup
 
 
+def get_focused_process_name() -> Optional[str]:
+    """Return the process name (e.g. 'chrome.exe') of the foreground window.
+    Windows-only. Returns None on failure."""
+    if sys.platform != "win32":
+        return None
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return None
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value:
+            return None
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+        if not h:
+            return None
+        buf = (ctypes.c_wchar * 260)()
+        n = psapi.GetModuleBaseNameW(h, None, buf, 260)
+        kernel32.CloseHandle(h)
+        return buf.value if n else None
+    except Exception:
+        return None
+
+
+def resolve_target(target: Optional[str]) -> Optional[str]:
+    """Translate special target tokens into real process names.
+
+    Currently supported:
+      - "__focused__"   -> currently foreground window's process name
+      - everything else -> returned as-is
+    """
+    if not target:
+        return target
+    if target == "__focused__":
+        return get_focused_process_name()
+    return target
+
+
 def set_app_volume(name: str, volume: float) -> bool:
     if not _HAS_PYCAW:
         return False
@@ -823,11 +865,14 @@ def pick_backend() -> MidiBackend:
 # Dispatcher
 # ============================================================
 class Dispatcher:
-    def __init__(self):
+    def __init__(self, browser_cmd=None):
         self.mappings: Dict[str, Dict[str, Any]] = {}
         # Per-control press state. Used so velocity pads behave as clean
         # momentary switches (one event per press/release cycle).
         self._pressed: Dict[str, bool] = {}
+        # Optional callback to send commands to the browser extension
+        # (signature: browser_cmd(payload_dict) -> None).
+        self._browser_cmd = browser_cmd
 
     def update_mappings(self, mappings: List[Dict[str, Any]]):
         self.mappings = {m["control_id"]: m for m in mappings}
@@ -867,7 +912,7 @@ class Dispatcher:
         if not m:
             return False
         action = m.get("action_type")
-        target = m.get("target_app")
+        target = resolve_target(m.get("target_app"))
         params = m.get("params") or {}
 
         try:
@@ -916,6 +961,19 @@ class Dispatcher:
 
             if action == "toggle_mute" and target:
                 toggle_app_mute(target); return True
+            if action == "mute_tab" and self._browser_cmd is not None:
+                # target should be a tab selector ("tab:<id>" or a URL/title regex)
+                self._browser_cmd({"type": "mute_tab", "selector": target or "", "muted": True})
+                return True
+            if action == "unmute_tab" and self._browser_cmd is not None:
+                self._browser_cmd({"type": "mute_tab", "selector": target or "", "muted": False})
+                return True
+            if action == "toggle_tab_mute" and self._browser_cmd is not None:
+                self._browser_cmd({"type": "toggle_tab_mute", "selector": target or ""})
+                return True
+            if action == "focus_tab" and self._browser_cmd is not None:
+                self._browser_cmd({"type": "focus_tab", "selector": target or ""})
+                return True
             if action in ("media_play_pause", "media_next", "media_prev", "media_stop"):
                 media_key(action); return True
             if action == "launch_app":
@@ -958,7 +1016,7 @@ class HelperClient:
         self.backend = backend
         self.midi_port_name: Optional[str] = None
         self.device_connected = False
-        self.dispatcher = Dispatcher()
+        self.dispatcher = Dispatcher(browser_cmd=self._send_browser_cmd)
         self.stop_evt = threading.Event()
         # Async report pipeline so MIDI events never block on HTTP
         self._report_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
@@ -973,6 +1031,15 @@ class HelperClient:
         # Learned (channel, note) per control_id from incoming events, so LEDs
         # can be targeted at whatever notes the device is actually using right now.
         self._physical_pads: Dict[str, tuple] = {}
+
+    def _send_browser_cmd(self, payload: dict):
+        """Forward a browser-tab command to the server, which relays it to
+        the extension over WebSocket. Fire-and-forget."""
+        try:
+            self._http.post(f"{self.api}/api/browser/command", json=payload, timeout=2)
+        except Exception as e:
+            if DEBUG:
+                print(f"[BROWSER] cmd failed: {e}")
 
     def post(self, path, body):
         try:

@@ -24,7 +24,15 @@ const ACTION_OPTIONS = [
   { value: "media_next", label: "Media · Next Track", needsTarget: false, kind: "trigger" },
   { value: "media_prev", label: "Media · Previous Track", needsTarget: false, kind: "trigger" },
   { value: "media_stop", label: "Media · Stop", needsTarget: false, kind: "trigger" },
+  // Browser-extension actions (requires Launchkey Tab Bridge extension)
+  { value: "mute_tab", label: "Browser · Mute Tab", needsTarget: true, kind: "trigger", targetKind: "tab" },
+  { value: "unmute_tab", label: "Browser · Unmute Tab", needsTarget: true, kind: "trigger", targetKind: "tab" },
+  { value: "toggle_tab_mute", label: "Browser · Toggle Tab Mute", needsTarget: true, kind: "trigger", targetKind: "tab" },
+  { value: "focus_tab", label: "Browser · Focus Tab", needsTarget: true, kind: "trigger", targetKind: "tab" },
 ];
+
+// Special target tokens shown above the running-app list
+const FOCUSED_TOKEN = "__focused__";
 
 function controlLabel(id) {
   if (id.startsWith("knob-")) return `Knob ${id.split('-')[1]}`;
@@ -42,7 +50,7 @@ function controlLabel(id) {
   return id.replace(/-/g, ' ');
 }
 
-export default function MappingDialog({ controlId, mapping, sessions, onClose, onSave, onDelete }) {
+export default function MappingDialog({ controlId, mapping, sessions, browserTabs, onClose, onSave, onDelete }) {
   const [actionType, setActionType] = useState(mapping?.action_type || "set_volume");
   const [target, setTarget] = useState(mapping?.target_app || "");
   const [customTarget, setCustomTarget] = useState(false);
@@ -130,7 +138,55 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
             </Select>
           </div>
 
-          {needsTarget && (
+          {needsTarget && action?.targetKind === "tab" && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-mono text-neutral-400 uppercase tracking-wider">Target Browser Tab</Label>
+                <button
+                  onClick={() => setCustomTarget(v => !v)}
+                  className="text-[10px] font-mono text-brand hover:underline"
+                >
+                  {customTarget ? "pick from open tabs" : "match by title/url"}
+                </button>
+              </div>
+              {(browserTabs && browserTabs.length > 0) && !customTarget ? (
+                <Select value={target} onValueChange={setTarget}>
+                  <SelectTrigger className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono">
+                    <SelectValue placeholder="Pick an open tab…" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-surface border-[#262626] text-white max-h-72">
+                    {browserTabs.map((t) => (
+                      <SelectItem
+                        key={t.tabId}
+                        value={`tab:${t.tabId}`}
+                        className="text-sm font-mono focus:bg-[#1a1a1a]"
+                      >
+                        <span className="block truncate max-w-[420px]">
+                          {(t.muted ? "🔇 " : t.audible ? "🔊 " : "  ") + (t.title || t.url || `tab ${t.tabId}`)}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  placeholder="youtube  ·  twitch.tv  ·  regex:^Discord"
+                  className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono"
+                />
+              )}
+              <div className="text-[10px] font-mono text-neutral-500">
+                {customTarget
+                  ? "Matches any tab whose title OR url contains this text (case-insensitive). Use `regex:` prefix for full regex."
+                  : (!browserTabs || browserTabs.length === 0)
+                    ? "No tabs reported yet — install the Launchkey Mixer Tab Bridge extension and refresh."
+                    : "Tab IDs change when the tab is closed/reopened. For a permanent binding, switch to 'match by title/url'."}
+              </div>
+            </div>
+          )}
+
+          {needsTarget && action?.targetKind !== "tab" && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-mono text-neutral-400 uppercase tracking-wider">Target App (process name)</Label>
@@ -149,6 +205,9 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
                     <SelectValue placeholder="Select running app…" />
                   </SelectTrigger>
                   <SelectContent className="bg-surface border-[#262626] text-white">
+                    <SelectItem value={FOCUSED_TOKEN} className="text-sm font-mono focus:bg-[#1a1a1a] text-brand">
+                      ◆ Currently Focused Window
+                    </SelectItem>
                     {sessions.map((s, i) => (
                       <SelectItem key={i} value={s.process_name} className="text-sm font-mono focus:bg-[#1a1a1a]">
                         {s.display_name || s.process_name}
@@ -162,9 +221,14 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
                   data-testid={LK.mappingTargetInput}
                   value={target}
                   onChange={(e) => setTarget(e.target.value)}
-                  placeholder="e.g. chrome.exe, spotify.exe, Discord.exe"
+                  placeholder="chrome.exe   ·   spotify.exe   ·   __focused__"
                   className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono"
                 />
+              )}
+              {target === FOCUSED_TOKEN && (
+                <div className="text-[10px] font-mono text-brand">
+                  ◆ Will always control whichever window has focus when you turn this control.
+                </div>
               )}
             </div>
           )}

@@ -59,31 +59,63 @@ jobs:
         working-directory: offline
         run: python -m PyInstaller --noconfirm --clean LaunchkeyMixer.spec
 
-      - name: Upload artifact (always)
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress --yes
+
+      - name: Build installer with Inno Setup
+        working-directory: offline
+        run: |
+          if (-not (Test-Path installer)) { New-Item -ItemType Directory -Path installer | Out-Null }
+          & "$env:ProgramFiles(x86)\Inno Setup 6\iscc.exe" /Qp installer.iss
+
+      - name: Self-sign executables
+        working-directory: offline
+        continue-on-error: true
+        run: powershell -ExecutionPolicy Bypass -File sign.ps1
+
+      - name: Upload portable exe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LaunchkeyMixer-${{ github.sha }}
+          name: LaunchkeyMixer-portable-${{ github.sha }}
           path: offline/dist/LaunchkeyMixer.exe
           if-no-files-found: error
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LaunchkeyMixerSetup-${{ github.sha }}
+          path: offline/installer/LaunchkeyMixerSetup.exe
+          if-no-files-found: warn
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: offline/dist/LaunchkeyMixer.exe
+          files: |
+            offline/dist/LaunchkeyMixer.exe
+            offline/installer/LaunchkeyMixerSetup.exe
           generate_release_notes: true
           body: |
             ## Launchkey Mixer ${{ github.ref_name }}
 
             Standalone Windows build of the Launchkey Mixer — turns your Novation Launchkey Mini MK4 25 into a tactile Windows control surface.
 
-            ### Download & Run
-            1. Download **`LaunchkeyMixer.exe`** below.
-            2. Plug in your Launchkey Mini MK4 25 via USB.
-            3. Double-click the exe — it minimizes to the system tray and opens the dashboard in your browser.
-            4. Right-click the tray icon for `Open Dashboard` / `Quit`.
+            ### Two ways to install
 
-            No installation, no MongoDB, no internet required. Data lives in `%APPDATA%\LaunchkeyMixer\`.
+            | File | What it does |
+            |---|---|
+            | **`LaunchkeyMixerSetup.exe`** ⭐ recommended | One-click installer with Start menu shortcut + optional "Start with Windows" toggle |
+            | **`LaunchkeyMixer.exe`** | Portable single-file build — no install, drop anywhere |
+
+            ### Run
+            1. Plug in your Launchkey Mini MK4 25 via USB.
+            2. Launch — it minimises to the system tray and opens the dashboard in your browser.
+            3. Right-click the tray icon for `Open Dashboard` / `Quit`.
+
+            ### Browser tab muting (optional)
+            Install the **[Tab Bridge extension](https://github.com/ruskir1222/Launchkey25mk4Mixer/tree/main/extension)** in Chrome / Edge / Opera / Brave to mute specific tabs from your Launchkey.
+
+            No installation footprint, no MongoDB, no internet required.
 
             ### Build from source
             See [`offline/README.md`](https://github.com/ruskir1222/Launchkey25mk4Mixer/blob/main/offline/README.md).
