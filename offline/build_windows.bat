@@ -73,8 +73,24 @@ if not exist .env.offline (
 )
 if exist .env copy /Y .env .env.cloud.bak >nul
 copy /Y .env.offline .env >nul
+
+REM Try the chosen package manager first; on install failure, fall back to npm.
 call %PKG_INSTALL%
-if errorlevel 1 goto :fail
+if errorlevel 1 (
+    if "%PKG%"=="yarn" (
+        echo.
+        echo *** Yarn install failed - falling back to npm ***
+        echo.
+        REM Remove yarn.lock so npm doesn't trip on it, then use npm install
+        if exist yarn.lock del /Q yarn.lock
+        call npm install --legacy-peer-deps
+        if errorlevel 1 goto :fail
+        set PKG=npm
+        set PKG_BUILD=npm run build
+    ) else (
+        goto :fail
+    )
+)
 call %PKG_BUILD%
 if errorlevel 1 goto :fail
 if exist .env.cloud.bak (
