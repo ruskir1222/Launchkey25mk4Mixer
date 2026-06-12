@@ -1,24 +1,32 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import "@/index.css";
-import App from "@/App";
 
-// Suppress benign ResizeObserver warnings that Radix popper triggers — they
-// otherwise get caught by the CRA dev error overlay and block the UI.
-const RO_MSG = "ResizeObserver loop";
+// Patch ResizeObserver BEFORE anything else to prevent benign
+// "ResizeObserver loop completed with undelivered notifications" errors
+// (triggered by Radix popper/select) from popping the CRA dev overlay.
+if (typeof window !== "undefined" && window.ResizeObserver) {
+  const RO = window.ResizeObserver;
+  window.ResizeObserver = class extends RO {
+    constructor(callback) {
+      super((entries, observer) => {
+        window.requestAnimationFrame(() => {
+          try { callback(entries, observer); } catch (e) { /* swallow */ }
+        });
+      });
+    }
+  };
+}
+
 window.addEventListener("error", (e) => {
-  if (e?.message && e.message.includes(RO_MSG)) {
+  if (e?.message && e.message.includes("ResizeObserver loop")) {
     e.stopImmediatePropagation();
     e.preventDefault();
   }
 });
-window.addEventListener("unhandledrejection", (e) => {
-  const msg = e?.reason?.message || String(e?.reason || "");
-  if (msg.includes(RO_MSG)) {
-    e.preventDefault();
-  }
-});
+
+import "@/index.css";
+import App from "@/App";
 
 const queryClient = new QueryClient({
   defaultOptions: {

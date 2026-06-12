@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { LK } from "@/constants/testIds";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,6 +48,10 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
   const needsTarget = action?.needsTarget;
 
   const handleSave = () => {
+    if (needsTarget && !target.trim()) {
+      toast.error("Target app required", { description: "Choose a running app or type a process name." });
+      return;
+    }
     onSave({
       action_type: actionType,
       target_app: needsTarget ? target : null,
@@ -90,22 +95,16 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-mono text-neutral-400 uppercase tracking-wider">Target App (process name)</Label>
-                <button
-                  onClick={() => setCustomTarget(v => !v)}
-                  className="text-[10px] font-mono text-brand hover:underline"
-                >
-                  {customTarget ? "pick from list" : "enter manually"}
-                </button>
+                {sessions.length > 0 && (
+                  <button
+                    onClick={() => setCustomTarget(v => !v)}
+                    className="text-[10px] font-mono text-brand hover:underline"
+                  >
+                    {customTarget ? "pick from list" : "enter manually"}
+                  </button>
+                )}
               </div>
-              {customTarget || sessions.length === 0 ? (
-                <Input
-                  data-testid={LK.mappingTargetInput}
-                  value={target}
-                  onChange={(e) => setTarget(e.target.value)}
-                  placeholder="e.g. chrome.exe, spotify.exe, Discord.exe"
-                  className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono"
-                />
-              ) : (
+              {sessions.length > 0 && !customTarget ? (
                 <Select value={target} onValueChange={setTarget}>
                   <SelectTrigger data-testid={LK.mappingTargetSelect} className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono">
                     <SelectValue placeholder="Select running app…" />
@@ -119,6 +118,14 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
                     ))}
                   </SelectContent>
                 </Select>
+              ) : (
+                <Input
+                  data-testid={LK.mappingTargetInput}
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  placeholder="e.g. chrome.exe, spotify.exe, Discord.exe"
+                  className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono"
+                />
               )}
             </div>
           )}
