@@ -540,6 +540,18 @@ def _build_tray_icon_image():
     return img
 
 
+def _open_browser(url: str):
+    """Open the dashboard in the default browser. Uses os.startfile on Windows
+    (more reliable than webbrowser.open from a windowed PyInstaller exe)."""
+    try:
+        if sys.platform == "win32":
+            os.startfile(url)
+        else:
+            webbrowser.open(url)
+    except Exception as e:
+        log.warning("Failed to open browser: %s", e)
+
+
 def run_with_tray(url: str):
     """Run uvicorn in a thread and a pystray icon on the main thread."""
     import pystray
@@ -555,10 +567,7 @@ def run_with_tray(url: str):
     server_thread.start()
 
     def on_open(icon, item):
-        try:
-            webbrowser.open(url)
-        except Exception:
-            pass
+        _open_browser(url)
 
     def on_quit(icon, item):
         log.info("Tray quit requested — shutting down.")
@@ -589,11 +598,9 @@ def main():
     # Open the browser shortly after the server is up
     def open_browser_later():
         import time
-        time.sleep(1.0)
-        try:
-            webbrowser.open(url)
-        except Exception:
-            pass
+        # Wait long enough for uvicorn to bind the port (~2s is safe for cold start)
+        time.sleep(2.0)
+        _open_browser(url)
 
     threading.Thread(target=open_browser_later, daemon=True).start()
 
