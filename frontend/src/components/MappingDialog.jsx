@@ -50,6 +50,10 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
   const [invert, setInvert] = useState(!!mapping?.params?.invert);
   const [uiAlias, setUiAlias] = useState(mapping?.ui_alias || "");
   const [paramValue, setParamValue] = useState("");
+  const [triggerOn, setTriggerOn] = useState(mapping?.params?.trigger_on || "press");
+  const [ledColor, setLedColor] = useState(
+    typeof mapping?.params?.led_color === "number" ? mapping.params.led_color : null
+  );
 
   useEffect(() => {
     setActionType(mapping?.action_type || "set_volume");
@@ -58,6 +62,8 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
     setInvert(!!mapping?.params?.invert);
     setUiAlias(mapping?.ui_alias || "");
     setCustomTarget(false);
+    setTriggerOn(mapping?.params?.trigger_on || "press");
+    setLedColor(typeof mapping?.params?.led_color === "number" ? mapping.params.led_color : null);
     const act = ACTION_OPTIONS.find(a => a.value === (mapping?.action_type || "set_volume"));
     setParamValue(act?.paramKey ? (mapping?.params?.[act.paramKey] || "") : "");
   }, [mapping, controlId]);
@@ -78,6 +84,12 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
     const params = {};
     if (action?.kind === "continuous") params.invert = invert;
     if (hasParam) params[action.paramKey] = paramValue.trim();
+    if (action?.kind === "trigger" && controlId.startsWith("pad-")) {
+      params.trigger_on = triggerOn;
+    }
+    if (controlId.startsWith("pad-") && ledColor !== null) {
+      params.led_color = ledColor;
+    }
     onSave({
       action_type: actionType,
       target_app: needsTarget ? target : null,
@@ -156,6 +168,75 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
               )}
             </div>
           )}
+
+          {controlId.startsWith("pad-") && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-mono text-neutral-400 uppercase tracking-wider">Pad LED Color</Label>
+                {ledColor !== null && (
+                  <button onClick={() => setLedColor(null)} className="text-[10px] font-mono text-brand hover:underline">
+                    auto (by action)
+                  </button>
+                )}
+              </div>
+              <div className="grid gap-1.5" style={{gridTemplateColumns:'repeat(13,minmax(0,1fr))'}}>
+                {[
+                  { v: 0,  c: '#000000', n: 'off' },
+                  { v: 3,  c: '#ffffff', n: 'white' },
+                  { v: 5,  c: '#ff2020', n: 'red' },
+                  { v: 9,  c: '#ff8000', n: 'orange' },
+                  { v: 13, c: '#ffe000', n: 'yellow' },
+                  { v: 17, c: '#a0ff00', n: 'lime' },
+                  { v: 21, c: '#10ff10', n: 'green' },
+                  { v: 25, c: '#00ffa0', n: 'aqua' },
+                  { v: 33, c: '#00d8ff', n: 'cyan' },
+                  { v: 41, c: '#2060ff', n: 'blue' },
+                  { v: 45, c: '#7030ff', n: 'indigo' },
+                  { v: 49, c: '#b040ff', n: 'purple' },
+                  { v: 53, c: '#ff40c0', n: 'pink' },
+                ].map(sw => {
+                  const active = ledColor === sw.v;
+                  return (
+                    <button
+                      key={sw.v}
+                      data-testid={`led-${sw.n}`}
+                      onClick={() => setLedColor(sw.v)}
+                      title={`${sw.n} (velocity ${sw.v})`}
+                      className={`aspect-square rounded-sm border-2 transition-all ${
+                        active ? 'border-white scale-110' : 'border-[#262626] hover:border-neutral-400'
+                      }`}
+                      style={{ backgroundColor: sw.c }}
+                    />
+                  );
+                })}
+              </div>
+              <div className="text-[10px] font-mono text-neutral-500">
+                {ledColor === null
+                  ? 'auto-picks a color based on the action type'
+                  : `velocity ${ledColor} — applied next time the helper syncs (≤1.5s)`}
+              </div>
+            </div>
+          )}
+
+          {action?.kind === "trigger" && controlId.startsWith("pad-") && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-mono text-neutral-400 uppercase tracking-wider">Pad Behaviour</Label>
+              <Select value={triggerOn} onValueChange={setTriggerOn}>
+                <SelectTrigger data-testid="trigger-on-select" className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-surface border-[#262626] text-white">
+                  <SelectItem value="press" className="text-sm focus:bg-[#1a1a1a]">Fire on Press (momentary, single-shot)</SelectItem>
+                  <SelectItem value="release" className="text-sm focus:bg-[#1a1a1a]">Fire on Release</SelectItem>
+                  <SelectItem value="while_held" className="text-sm focus:bg-[#1a1a1a]">While Held (mute on press, unmute on release)</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="text-[10px] font-mono text-neutral-500">
+                Velocity is ignored — every tap fires exactly once.
+              </div>
+            </div>
+          )}
+
 
           {action?.kind === "continuous" && (
             <div className="flex items-center justify-between p-3 bg-[#0e0e0e] border border-[#1f1f1f] rounded-sm">

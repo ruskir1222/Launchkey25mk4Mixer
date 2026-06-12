@@ -224,6 +224,25 @@ def _get_cached_volume(name: str):
     return _SESSION_CACHE.get(name.lower())
 
 
+def set_mute(name: str, mute: bool) -> bool:
+    """Set absolute mute state (used by 'while held' triggers)."""
+    if not _HAS_PYCAW:
+        return False
+    found = 0
+    try:
+        for s in AudioUtilities.GetAllSessions():
+            if s.Process and s.Process.name().lower() == name.lower():
+                s.SimpleAudioVolume.SetMute(1 if mute else 0, None)
+                found += 1
+        if found:
+            print(f"[mute] {name}: {'MUTED' if mute else 'UNMUTED'} (held)")
+        return found > 0
+    except Exception as e:
+        print(f"[mute] set_mute error: {e}")
+        return False
+
+
+
 def toggle_app_mute(name: str) -> bool:
     if not _HAS_PYCAW:
         print("[mute] pycaw unavailable")
@@ -549,25 +568,36 @@ class MidiOut:
 
     def enter_daw_mode(self):
         """Tell the Launchkey to accept host-driven pad LED commands.
-        Tries the published SysEx for MK3 / MK4. Harmless if device ignores it."""
-        # MK3:  F0 00 20 29 02 0F 10 01 F7
-        # MK4:  F0 00 20 29 02 14 10 01 F7
-        # MK4 Mini variant tries the same family.
-        for product in (0x0F, 0x14, 0x13):
+        Tries published SysEx for MK3, MK4, MK4 Mini. Harmless if device ignores it."""
+        # Format: F0 00 20 29 02 <product> 10 <on=1/off=0> F7
+        for product in (0x0F, 0x14, 0x13, 0x11, 0x12):
             self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x10, 0x01, 0xF7]))
-        print("[LED] Sent DAW-mode SysEx (MK3/MK4 variants).")
+        print("[LED] Sent DAW-mode SysEx (MK3 / MK4 / Mini MK4 variants).")
+        # Some MK4 Minis also want a "host mode" handshake — send the
+        # generic Novation "enable host control" SysEx as well.
+        self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, 0x13, 0x0A, 0x7F, 0x7F, 0xF7]))
 
     def exit_daw_mode(self):
-        for product in (0x0F, 0x14, 0x13):
+        for product in (0x0F, 0x14, 0x13, 0x11, 0x12):
             self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x10, 0x00, 0xF7]))
 
-    # Convenience: light a pad. For Launchkey Mini MK3/MK4 in drum mode the
-    # pads accept Note On (0x99) with velocity = palette color index.
     def light_pad(self, midi_note: int, color: int, channel: int = 9):
-        # Send on the canonical drum channel AND channel 15 (InControl on MK3,
-        # session-control on MK4). Whichever the device is listening to wins.
-        self.send_short(0x90 | (channel & 0x0F), midi_note & 0x7F, color & 0x7F)
-        self.send_short(0x90 | 0x0F, midi_note & 0x7F, color & 0x7F)
+        """Light a pad using ALL known protocols at once. Whichever the device
+        listens to wins; the rest are ignored."""
+        c = color & 0x7F
+        n = midi_note & 0x7F
+        # Note On — drum channel (MK3 / many MK4 modes)
+        self.send_short(0x90 | (channel & 0x0F), n, c)
+        # Note On — InControl channel 16 (idx 15) — used by some MK3 modes
+        self.send_short(0x9F, n, c)
+        # Note On — channel 1 (idx 0) — used by some MK4 Mini Custom modes
+        self.send_short(0x90, n, c)
+        # SysEx static color set — MK4 / MK4 Mini explicit
+        # F0 00 20 29 02 <product> 03 <behaviour=0 static> <pad note> <color> F7
+        for product in (0x14, 0x13, 0x0F):
+            self.send_sysex(bytes([
+                0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x03, 0x00, n, c, 0xF7
+            ]))
 
 
 # Novation palette short-list (MK3 / MK4 friendly)
@@ -783,9 +813,42 @@ def pick_backend() -> MidiBackend:
 class Dispatcher:
     def __init__(self):
         self.mappings: Dict[str, Dict[str, Any]] = {}
+        # Per-control press state. Used so velocity pads behave as clean
+        # momentary switches (one event per press/release cycle).
+        self._pressed: Dict[str, bool] = {}
 
     def update_mappings(self, mappings: List[Dict[str, Any]]):
         self.mappings = {m["control_id"]: m for m in mappings}
+
+    def _press_edge(self, control_id: str, msg: Msg) -> Optional[str]:
+        """Returns 'press', 'release', or None based on edge detection.
+        Filters aftertouch repeats from velocity-sensitive pads."""
+        if msg.type == "note_off":
+            if self._pressed.get(control_id):
+                self._pressed[control_id] = False
+                return "release"
+            return None
+        if msg.type == "note_on":
+            is_on = (msg.velocity or 0) > 0
+            was = self._pressed.get(control_id, False)
+            if is_on and not was:
+                self._pressed[control_id] = True
+                return "press"
+            if not is_on and was:
+                self._pressed[control_id] = False
+                return "release"
+            return None  # repeat / aftertouch — swallow
+        if msg.type == "control_change":
+            is_on = (msg.value or 0) > 0
+            was = self._pressed.get(control_id, False)
+            if is_on and not was:
+                self._pressed[control_id] = True
+                return "press"
+            if not is_on and was:
+                self._pressed[control_id] = False
+                return "release"
+            return None
+        return None
 
     def handle(self, control_id: str, msg: Msg) -> bool:
         m = self.mappings.get(control_id)
@@ -815,12 +878,29 @@ class Dispatcher:
                 set_master_volume(vol)
                 return True
 
-            is_trigger = (
-                (msg.type == "note_on" and (msg.velocity or 0) > 0)
-                or (msg.type == "control_change" and (msg.value or 0) > 0)
-            )
-            if not is_trigger:
+            # ---- Trigger actions (momentary-switch edge-detected) ----
+            edge = self._press_edge(control_id, msg)
+            trigger_on = (params.get("trigger_on") or "press").lower()  # press | release | while_held
+            if edge is None:
                 return False
+
+            # while_held: fire action on press, fire the "opposite" on release.
+            # Currently only toggle_mute has an obvious opposite; for other
+            # actions while_held behaves the same as press.
+            if trigger_on == "press" and edge != "press":
+                return False
+            if trigger_on == "release" and edge != "release":
+                return False
+            if trigger_on == "while_held":
+                if edge not in ("press", "release"):
+                    return False
+                # For mute: press -> mute, release -> unmute
+                if action == "toggle_mute" and target:
+                    set_mute(target, edge == "press")
+                    return True
+                # For others, fall through to fire once on press, skip release
+                if edge == "release":
+                    return False
 
             if action == "toggle_mute" and target:
                 toggle_app_mute(target); return True
@@ -956,17 +1036,21 @@ class HelperClient:
                     break
             if pad_idx is None or pad_idx < 1 or pad_idx > 16:
                 continue
-            # Pick color by action type
-            act = m.get("action_type") or ""
-            color = PAD_COLORS["orange"]
-            if act in ("toggle_mute", "mute"): color = PAD_COLORS["red"]
-            elif act == "set_volume": color = PAD_COLORS["green"]
-            elif act == "launch_app": color = PAD_COLORS["blue"]
-            elif act == "kill_app": color = PAD_COLORS["red"]
-            elif act == "open_url": color = PAD_COLORS["cyan"]
-            elif act == "send_keystroke": color = PAD_COLORS["purple"]
-            elif act == "run_command": color = PAD_COLORS["yellow"]
-            elif act.startswith("media_"): color = PAD_COLORS["pink"]
+            # Pick color: explicit user choice wins over the action-derived default
+            user_color = m.get("params", {}).get("led_color")
+            if isinstance(user_color, int) and 0 <= user_color <= 127:
+                color = user_color
+            else:
+                act = m.get("action_type") or ""
+                color = PAD_COLORS["orange"]
+                if act in ("toggle_mute", "mute"): color = PAD_COLORS["red"]
+                elif act == "set_volume": color = PAD_COLORS["green"]
+                elif act == "launch_app": color = PAD_COLORS["blue"]
+                elif act == "kill_app": color = PAD_COLORS["red"]
+                elif act == "open_url": color = PAD_COLORS["cyan"]
+                elif act == "send_keystroke": color = PAD_COLORS["purple"]
+                elif act == "run_command": color = PAD_COLORS["yellow"]
+                elif act.startswith("media_"): color = PAD_COLORS["pink"]
             wanted[pad_idx] = color
         # Map pad-index -> MIDI note (top row=pads 1..8 -> notes 44..51, bottom 9..16 -> 36..43)
         def pad_to_note(idx: int) -> int:
