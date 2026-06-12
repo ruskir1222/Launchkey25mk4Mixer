@@ -98,6 +98,24 @@
   0% { background: #ff5500; box-shadow: 0 0 24px var(--accent); }
   100% { background: #161616; }
 }
+
+/* targeting state — when MIDI Learn has picked this UI control */
+.pad.targeting, .knob.targeting, .mk4-btn.targeting {
+  animation: targetPulse 900ms ease-in-out infinite;
+  border-color: #00d8ff !important;
+}
+@keyframes targetPulse {
+  0%, 100% {
+    background: rgba(0, 216, 255, 0.18);
+    box-shadow: 0 0 0 0 rgba(0, 216, 255, 0.7),
+                inset 0 0 12px -2px rgba(0, 216, 255, 0.6);
+  }
+  50% {
+    background: rgba(0, 216, 255, 0.42);
+    box-shadow: 0 0 16px 4px rgba(0, 216, 255, 0.55),
+                inset 0 0 18px -2px rgba(0, 216, 255, 0.9);
+  }
+}
 .knob {
   width: 56px; height: 56px; border-radius: 50%;
   background: radial-gradient(circle at 30% 30%, #2a2a2a, #0c0c0c 70%);

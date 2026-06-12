@@ -13,27 +13,12 @@ function buildKeys(count = 25) {
   return Array.from({ length: count }, (_, i) => ({ idx: i + 1, type: pattern[i % 12] }));
 }
 
-function Knob({ idx, assigned, flashing, onClick }) {
-  const angle = assigned ? 90 : -45;
-  return (
-    <button
-      data-testid={LK.knob(idx)}
-      onClick={onClick}
-      className={`knob mk4-knob ${assigned ? 'assigned' : ''} ${flashing ? 'pulse-accent' : ''}`}
-      title={`Encoder ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}`}
-    >
-      <div className="knob-indicator" style={{ transform: `translateX(-50%) rotate(${angle}deg)` }} />
-      <span className="text-[9px] font-mono text-neutral-500 absolute -bottom-4">E{idx}</span>
-    </button>
-  );
-}
-
-function Pad({ idx, assigned, flashing, onClick }) {
+function Pad({ idx, assigned, flashing, targeting, onClick }) {
   return (
     <button
       data-testid={LK.pad(idx)}
       onClick={onClick}
-      className={`pad mk4-pad ${assigned ? 'assigned' : ''} ${flashing ? 'flash' : ''} relative flex items-center justify-center`}
+      className={`pad mk4-pad ${assigned ? 'assigned' : ''} ${flashing ? 'flash' : ''} ${targeting ? 'targeting' : ''} relative flex items-center justify-center`}
       title={`Pad ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}`}
     >
       {assigned && (
@@ -41,6 +26,21 @@ function Pad({ idx, assigned, flashing, onClick }) {
           {assigned.label || assigned.action_type.replace(/_/g, ' ')}
         </span>
       )}
+    </button>
+  );
+}
+
+function Knob({ idx, assigned, flashing, targeting, onClick }) {
+  const angle = assigned ? 90 : -45;
+  return (
+    <button
+      data-testid={LK.knob(idx)}
+      onClick={onClick}
+      className={`knob mk4-knob ${assigned ? 'assigned' : ''} ${flashing ? 'pulse-accent' : ''} ${targeting ? 'targeting' : ''}`}
+      title={`Encoder ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}`}
+    >
+      <div className="knob-indicator" style={{ transform: `translateX(-50%) rotate(${angle}deg)` }} />
+      <span className="text-[9px] font-mono text-neutral-500 absolute -bottom-4">E{idx}</span>
     </button>
   );
 }
@@ -90,7 +90,7 @@ function ModePill({ label, active = false }) {
   );
 }
 
-export default function HardwareVisualizer({ mappingByControl, flashControl, midiLearn, onControlClick }) {
+export default function HardwareVisualizer({ mappingByControl, flashControl, midiLearn, learnTarget, onControlClick }) {
   const keys = buildKeys(25);
   const [activeFlash, setActiveFlash] = useState(null);
 
@@ -102,6 +102,7 @@ export default function HardwareVisualizer({ mappingByControl, flashControl, mid
   }, [flashControl]);
 
   const isFlashing = (id) => activeFlash === id;
+  const isTargeting = (id) => learnTarget === id;
   const map = mappingByControl;
 
   return (
@@ -211,11 +212,13 @@ export default function HardwareVisualizer({ mappingByControl, flashControl, mid
               {Array.from({ length: 8 }, (_, i) => (
                 <Pad key={i + 1} idx={i + 1}
                   assigned={map[`pad-${i + 1}`]} flashing={isFlashing(`pad-${i + 1}`)}
+                  targeting={isTargeting(`pad-${i + 1}`)}
                   onClick={() => onControlClick(`pad-${i + 1}`)} />
               ))}
               {Array.from({ length: 8 }, (_, i) => (
                 <Pad key={i + 9} idx={i + 9}
                   assigned={map[`pad-${i + 9}`]} flashing={isFlashing(`pad-${i + 9}`)}
+                  targeting={isTargeting(`pad-${i + 9}`)}
                   onClick={() => onControlClick(`pad-${i + 9}`)} />
               ))}
             </div>

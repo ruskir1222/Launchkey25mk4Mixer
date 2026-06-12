@@ -185,6 +185,7 @@ export default function Dashboard() {
               mappingByControl={mappingByControl}
               flashControl={flashControl}
               midiLearn={midiLearn}
+              learnTarget={learnTarget}
               onControlClick={onControlClick}
             />
             <CollapsibleSection
