@@ -6,7 +6,14 @@
 # This produces dist\LaunchkeyMixer.exe — a single-file Windows executable
 # that bundles the FastAPI server, SQLite, the React UI, and the MIDI helper.
 
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
 block_cipher = None
+
+# Grab ALL submodules of uvicorn, starlette, anyio so dynamic imports don't fail.
+uvicorn_modules = collect_submodules('uvicorn')
+starlette_modules = collect_submodules('starlette')
+anyio_modules = collect_submodules('anyio')
 
 a = Analysis(
     ['server_offline.py'],
@@ -17,15 +24,12 @@ a = Analysis(
         ('helper', 'helper'),
     ],
     hiddenimports=[
-        'uvicorn.logging',
-        'uvicorn.loops.auto',
-        'uvicorn.loops.asyncio',
-        'uvicorn.protocols.http.auto',
-        'uvicorn.protocols.http.h11_impl',
-        'uvicorn.protocols.websockets.auto',
-        'uvicorn.protocols.websockets.websockets_impl',
-        'uvicorn.lifespan.on',
-        'uvicorn.lifespan.off',
+        # Bulk-collected submodules
+        *uvicorn_modules,
+        *starlette_modules,
+        *anyio_modules,
+        'h11',
+        'sniffio',
         # Helper deps — explicitly listed because launchkey_helper is loaded
         # dynamically and PyInstaller's static analysis can't see them.
         'requests',

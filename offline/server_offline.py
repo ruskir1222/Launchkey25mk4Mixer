@@ -559,11 +559,23 @@ def run_with_tray(url: str):
 
     icon_image = _build_tray_icon_image()
 
-    server_thread = threading.Thread(
-        target=lambda: uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning"),
-        daemon=True,
-        name="uvicorn-server",
-    )
+    def serve():
+        try:
+            # Ensure this thread has its own event loop (Windows quirk).
+            import asyncio
+            try:
+                asyncio.set_event_loop(asyncio.new_event_loop())
+            except Exception:
+                pass
+            from uvicorn import Config, Server
+            config = Config(app=app, host="127.0.0.1", port=PORT, log_level="info")
+            server = Server(config)
+            log.info("Uvicorn starting on %s:%s", config.host, config.port)
+            server.run()
+        except Exception as e:
+            log.exception("Uvicorn server thread crashed: %s", e)
+
+    server_thread = threading.Thread(target=serve, daemon=True, name="uvicorn-server")
     server_thread.start()
 
     def on_open(icon, item):
