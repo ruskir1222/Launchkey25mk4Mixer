@@ -23,9 +23,8 @@ No internet, no cloud account, no extra installs once built.
 ## Building the exe (do this on your Windows PC)
 
 ### Prerequisites
-- Python 3.10–3.12 ([python.org](https://www.python.org/downloads/))
-- Node.js 18+ ([nodejs.org](https://nodejs.org)) — only needed at build time
-- Yarn (`npm install -g yarn`)
+- Python 3.10–3.12 ([python.org](https://www.python.org/downloads/)) — tick **"Add Python to PATH"** during install
+- Node.js 18+ ([nodejs.org](https://nodejs.org)) — ships with `npm`, which is fine. Yarn is also supported if installed.
 
 ### Build steps
 1. Clone the repo and open a terminal in the `offline/` folder.
