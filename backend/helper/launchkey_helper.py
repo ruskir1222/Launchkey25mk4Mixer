@@ -512,10 +512,62 @@ class MidiOut:
         msg = (status & 0xFF) | ((data1 & 0xFF) << 8) | ((data2 & 0xFF) << 16)
         self.winmm.midiOutShortMsg(self._handle, ctypes.c_uint(msg))
 
+    def send_sysex(self, data: bytes):
+        """Send a SysEx message via midiOutLongMsg."""
+        if not self.opened or not self.winmm:
+            return
+        class MIDIHDR(ctypes.Structure):
+            _fields_ = [
+                ("lpData", ctypes.c_char_p),
+                ("dwBufferLength", wintypes.DWORD),
+                ("dwBytesRecorded", wintypes.DWORD),
+                ("dwUser", ctypes.c_void_p),
+                ("dwFlags", wintypes.DWORD),
+                ("lpNext", ctypes.c_void_p),
+                ("reserved", ctypes.c_void_p),
+                ("dwOffset", wintypes.DWORD),
+                ("dwReserved", ctypes.c_void_p * 8),
+            ]
+        buf = ctypes.create_string_buffer(data, len(data))
+        hdr = MIDIHDR()
+        hdr.lpData = ctypes.cast(buf, ctypes.c_char_p)
+        hdr.dwBufferLength = len(data)
+        hdr.dwBytesRecorded = len(data)
+        hdr.dwFlags = 0
+        try:
+            self.winmm.midiOutPrepareHeader(self._handle, ctypes.byref(hdr), ctypes.sizeof(hdr))
+            self.winmm.midiOutLongMsg(self._handle, ctypes.byref(hdr), ctypes.sizeof(hdr))
+            # midiOutLongMsg is async; small busy-wait so the buffer outlives the call
+            import time as _t
+            for _ in range(20):
+                if hdr.dwFlags & 0x00000001:  # MHDR_DONE
+                    break
+                _t.sleep(0.005)
+            self.winmm.midiOutUnprepareHeader(self._handle, ctypes.byref(hdr), ctypes.sizeof(hdr))
+        except Exception as e:
+            print(f"[LED] sysex error: {e}")
+
+    def enter_daw_mode(self):
+        """Tell the Launchkey to accept host-driven pad LED commands.
+        Tries the published SysEx for MK3 / MK4. Harmless if device ignores it."""
+        # MK3:  F0 00 20 29 02 0F 10 01 F7
+        # MK4:  F0 00 20 29 02 14 10 01 F7
+        # MK4 Mini variant tries the same family.
+        for product in (0x0F, 0x14, 0x13):
+            self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x10, 0x01, 0xF7]))
+        print("[LED] Sent DAW-mode SysEx (MK3/MK4 variants).")
+
+    def exit_daw_mode(self):
+        for product in (0x0F, 0x14, 0x13):
+            self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x10, 0x00, 0xF7]))
+
     # Convenience: light a pad. For Launchkey Mini MK3/MK4 in drum mode the
     # pads accept Note On (0x99) with velocity = palette color index.
     def light_pad(self, midi_note: int, color: int, channel: int = 9):
+        # Send on the canonical drum channel AND channel 15 (InControl on MK3,
+        # session-control on MK4). Whichever the device is listening to wins.
         self.send_short(0x90 | (channel & 0x0F), midi_note & 0x7F, color & 0x7F)
+        self.send_short(0x90 | 0x0F, midi_note & 0x7F, color & 0x7F)
 
 
 # Novation palette short-list (MK3 / MK4 friendly)
@@ -876,7 +928,10 @@ class HelperClient:
                 if not self._midi_out.opened and self.device_connected:
                     if led_attempts == 0 or led_attempts % 7 == 0:
                         ok = self._midi_out.open("launchkey")
-                        if not ok and led_attempts == 0:
+                        if ok:
+                            # Put device into host-LED control mode
+                            self._midi_out.enter_daw_mode()
+                        elif led_attempts == 0:
                             print("[LED] Pad LED feedback disabled — see ports list above.")
                     led_attempts += 1
                 if self._midi_out.opened:
@@ -1060,6 +1115,14 @@ class HelperClient:
             self.stop_evt.set()
             if isinstance(self.backend, WinmmBackend):
                 self.backend.stop()
+            try:
+                if self._midi_out.opened:
+                    # Turn pad LEDs off
+                    for n in range(36, 52):
+                        self._midi_out.light_pad(n, 0)
+                    self._midi_out.exit_daw_mode()
+                    self._midi_out.close()
+            except Exception: pass
 
 
 def main():
