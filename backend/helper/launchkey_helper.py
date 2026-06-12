@@ -1040,28 +1040,24 @@ class HelperClient:
 
     def _refresh_pad_leds(self, mappings, prev_state):
         """Light pads on the device to reflect their bound state.
-        Currently: bound pad = orange (color 9). Unbound = off."""
+        Handles both standard pad-N control IDs and synthetic note-chX-YY IDs
+        (from MIDI Learn on non-drum pad modes)."""
         if not self._midi_out.opened:
             return
-        # Build pad-index -> color map from mappings
-        wanted: Dict[int, int] = {}
+        # Each light command takes (channel, note, color). Build a list.
+        commands = []  # list of (channel, note, color, dedupe_key)
+
         for m in mappings:
             cid = m.get("control_id") or ""
             ui_alias = m.get("ui_alias") or ""
-            pad_idx = None
-            for src in (cid, ui_alias):
-                if src.startswith("pad-"):
-                    try: pad_idx = int(src.split("-", 1)[1])
-                    except: pass
-                    break
-            if pad_idx is None or pad_idx < 1 or pad_idx > 16:
-                continue
-            # Pick color: explicit user choice wins over the action-derived default
-            user_color = m.get("params", {}).get("led_color")
+            params = m.get("params") or {}
+            act = m.get("action_type") or ""
+
+            # Pick the color: user override wins
+            user_color = params.get("led_color")
             if isinstance(user_color, int) and 0 <= user_color <= 127:
                 color = user_color
             else:
-                act = m.get("action_type") or ""
                 color = PAD_COLORS["orange"]
                 if act in ("toggle_mute", "mute"): color = PAD_COLORS["red"]
                 elif act == "set_volume": color = PAD_COLORS["green"]
@@ -1071,27 +1067,56 @@ class HelperClient:
                 elif act == "send_keystroke": color = PAD_COLORS["purple"]
                 elif act == "run_command": color = PAD_COLORS["yellow"]
                 elif act.startswith("media_"): color = PAD_COLORS["pink"]
-            wanted[pad_idx] = color
-        # Map pad-index -> MIDI note (top row=pads 1..8 -> notes 44..51, bottom 9..16 -> 36..43)
-        def pad_to_note(idx: int) -> int:
-            if 1 <= idx <= 8:
-                return 43 + idx   # top: 44..51
-            return 35 + (idx - 8)  # bottom: 36..43
-        # Send updates only for changed pads
-        for idx in range(1, 17):
-            color = wanted.get(idx, PAD_COLORS["off"])
-            if prev_state.get(idx) == color:
+
+            # Source 1: standard pad-N (or via ui_alias)
+            pad_idx = None
+            for src in (cid, ui_alias):
+                if src.startswith("pad-"):
+                    try: pad_idx = int(src.split("-", 1)[1])
+                    except: pass
+                    break
+            if pad_idx and 1 <= pad_idx <= 16:
+                note = 43 + pad_idx if 1 <= pad_idx <= 8 else 35 + (pad_idx - 8)
+                commands.append((9, note, color, f"pad-{pad_idx}"))
+                # Also light any learned alternate note for this UI pad
+                learned = self._physical_pads.get(f"pad-{pad_idx}")
+                if learned and learned[1] != note:
+                    commands.append((learned[0], learned[1], color, f"learned-pad-{pad_idx}"))
                 continue
-            prev_state[idx] = color
-            # Default drum-layout note for this pad
-            default_note = pad_to_note(idx)
-            self._midi_out.light_pad(default_note, color)
-            # Also light any "learned" physical note we've seen for this UI pad
-            learned = self._physical_pads.get(f"pad-{idx}")
-            if learned:
-                ch, note = learned
-                if note != default_note:
-                    self._midi_out.send_short(0x90 | (ch & 0x0F), note & 0x7F, color & 0x7F)
+
+            # Source 2: synthetic note-chN-YY — light THAT note
+            m_note = None
+            for src in (cid, ui_alias):
+                if src.startswith("note-ch"):
+                    try:
+                        parts = src.split("-")  # ['note','ch9','5']
+                        ch = int(parts[1].replace("ch", ""))
+                        note = int(parts[2])
+                        m_note = (ch, note)
+                    except Exception:
+                        pass
+                    break
+            if m_note:
+                commands.append((m_note[0], m_note[1], color, f"note-{m_note[0]}-{m_note[1]}"))
+
+        # Diff against prev state
+        wanted = {key: (ch, note, color) for ch, note, color, key in commands}
+        # Turn OFF anything that was lit and is no longer wanted
+        for key, prev in list(prev_state.items()):
+            if key not in wanted:
+                ch, note, _ = prev
+                self._midi_out.send_short(0x90 | (ch & 0x0F), note & 0x7F, 0)
+                del prev_state[key]
+        # Apply/refresh wanted
+        for key, (ch, note, color) in wanted.items():
+            if prev_state.get(key) == (ch, note, color):
+                continue
+            prev_state[key] = (ch, note, color)
+            self._midi_out.send_short(0x90 | (ch & 0x0F), note & 0x7F, color & 0x7F)
+            # Belt-and-braces for MK4 Mini Custom modes:
+            self._midi_out.send_short(0x90, note & 0x7F, color & 0x7F)
+            self._midi_out.send_short(0x9F, note & 0x7F, color & 0x7F)
+            print(f"[LED] -> ch{ch} note={note} color={color}")
 
     def _report(self, msg: Msg, cid: str):
         """Throttled async report — never blocks the MIDI callback."""
