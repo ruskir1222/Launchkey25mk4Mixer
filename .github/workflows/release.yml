@@ -1,0 +1,88 @@
+name: Build & Release (Windows)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # allow manual trigger from the Actions tab
+
+permissions:
+  contents: write  # needed to create releases
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build React frontend (offline mode)
+        shell: bash
+        working-directory: frontend
+        run: |
+          echo "REACT_APP_BACKEND_URL=" > .env
+          npm install --legacy-peer-deps
+          npm run build
+
+      - name: Stage build artifacts into offline/
+        shell: bash
+        run: |
+          rm -rf offline/static offline/helper
+          mkdir -p offline/static offline/helper
+          cp -r frontend/build/. offline/static/
+          cp -r backend/helper/. offline/helper/
+
+      - name: Install Python dependencies
+        working-directory: offline
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Try optional python-rtmidi (binary-only)
+        working-directory: offline
+        continue-on-error: true
+        run: python -m pip install --only-binary=:all: python-rtmidi
+
+      - name: Package exe with PyInstaller
+        working-directory: offline
+        run: python -m PyInstaller --noconfirm --clean LaunchkeyMixer.spec
+
+      - name: Upload artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: LaunchkeyMixer-${{ github.sha }}
+          path: offline/dist/LaunchkeyMixer.exe
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: offline/dist/LaunchkeyMixer.exe
+          generate_release_notes: true
+          body: |
+            ## Launchkey Mixer ${{ github.ref_name }}
+
+            Standalone Windows build of the Launchkey Mixer — turns your Novation Launchkey Mini MK4 25 into a tactile Windows control surface.
+
+            ### Download & Run
+            1. Download **`LaunchkeyMixer.exe`** below.
+            2. Plug in your Launchkey Mini MK4 25 via USB.
+            3. Double-click the exe — it minimizes to the system tray and opens the dashboard in your browser.
+            4. Right-click the tray icon for `Open Dashboard` / `Quit`.
+
+            No installation, no MongoDB, no internet required. Data lives in `%APPDATA%\LaunchkeyMixer\`.
+
+            ### Build from source
+            See [`offline/README.md`](https://github.com/ruskir1222/Launchkey25mk4Mixer/blob/main/offline/README.md).
