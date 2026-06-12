@@ -183,11 +183,38 @@ def set_app_volume(name: str, volume: float):
         return
     volume = max(0.0, min(1.0, volume))
     try:
+        v = _get_cached_volume(name)
+        if v is not None:
+            v.SetMasterVolume(volume, None)
+            return
+        # cache miss — slow path
         for s in AudioUtilities.GetAllSessions():
             if s.Process and s.Process.name().lower() == name.lower():
-                s._ctl.QueryInterface(ISimpleAudioVolume).SetMasterVolume(volume, None)
+                iface = s._ctl.QueryInterface(ISimpleAudioVolume)
+                _SESSION_CACHE[name.lower()] = iface
+                iface.SetMasterVolume(volume, None)
+                return
     except Exception as e:
+        # invalidate cache on error and retry once
+        _SESSION_CACHE.pop(name.lower(), None)
         print(f"[WARN] set_app_volume: {e}")
+
+
+# Cache ISimpleAudioVolume interfaces per process name so we don't enumerate
+# every audio session on every MIDI tick. Cache TTL is short — sessions can
+# disappear when apps close.
+_SESSION_CACHE: Dict[str, Any] = {}
+_SESSION_CACHE_REFRESH = 0.0
+_SESSION_CACHE_TTL = 4.0  # seconds
+
+
+def _get_cached_volume(name: str):
+    import time as _t
+    global _SESSION_CACHE_REFRESH
+    if (_t.time() - _SESSION_CACHE_REFRESH) > _SESSION_CACHE_TTL:
+        _SESSION_CACHE.clear()
+        _SESSION_CACHE_REFRESH = _t.time()
+    return _SESSION_CACHE.get(name.lower())
 
 
 def toggle_app_mute(name: str):
@@ -499,6 +526,9 @@ class Dispatcher:
             print(f"[WARN] dispatch: {e}")
 
 
+import queue
+
+
 # ============================================================
 # Network client
 # ============================================================
@@ -510,10 +540,17 @@ class HelperClient:
         self.device_connected = False
         self.dispatcher = Dispatcher()
         self.stop_evt = threading.Event()
+        # Async report pipeline so MIDI events never block on HTTP
+        self._report_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
+        # Last value per control (for throttling continuous CCs)
+        self._last_sent_at: Dict[str, float] = {}
+        # Reusable HTTP session — keep-alive cuts ~50-100ms per request
+        self._http = requests.Session()
+        self._http.headers.update({"Connection": "keep-alive"})
 
     def post(self, path, body):
         try:
-            r = requests.post(f"{self.api}/api{path}", json=body, timeout=4)
+            r = self._http.post(f"{self.api}/api{path}", json=body, timeout=4)
             if DEBUG:
                 print(f"[NET] POST {path} -> {r.status_code}")
             if r.status_code >= 400:
@@ -524,7 +561,7 @@ class HelperClient:
 
     def get(self, path):
         try:
-            r = requests.get(f"{self.api}/api{path}", timeout=4)
+            r = self._http.get(f"{self.api}/api{path}", timeout=4)
             if DEBUG:
                 print(f"[NET] GET {path} -> {r.status_code}")
             return r.json()
@@ -557,16 +594,47 @@ class HelperClient:
             self.stop_evt.wait(POLL_INTERVAL)
 
     def _report(self, msg: Msg, cid: str):
-        self.post("/helper/midi-event", {
-            "control_id": cid, "raw_type": msg.type,
-            "channel": msg.channel,
-            "number": msg.control if msg.control is not None else msg.note,
-            "value": msg.value if msg.value is not None else (msg.velocity if msg.velocity is not None else msg.pitch),
-        })
+        """Throttled async report — never blocks the MIDI callback."""
+        import time as _t
+        # Throttle continuous CC / pitch events to max 1 per 50ms per control
+        is_continuous = msg.type in ("control_change", "pitchwheel")
+        if is_continuous:
+            last = self._last_sent_at.get(cid, 0.0)
+            if (_t.time() - last) < 0.05:
+                return
+            self._last_sent_at[cid] = _t.time()
+        try:
+            self._report_q.put_nowait({
+                "control_id": cid, "raw_type": msg.type,
+                "channel": msg.channel,
+                "number": msg.control if msg.control is not None else msg.note,
+                "value": msg.value if msg.value is not None else (msg.velocity if msg.velocity is not None else msg.pitch),
+            })
+        except queue.Full:
+            pass  # drop the report — local action still happened
+
+    def report_loop(self):
+        """Drains the report queue in a background thread, never blocks MIDI."""
+        while not self.stop_evt.is_set():
+            try:
+                payload = self._report_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            self.post("/helper/midi-event", payload)
 
     def _on_msg(self, msg: Msg):
         cid = control_id_from_msg(msg)
-        # Always print raw MIDI in a compact form — this is the most useful debug aid
+        if not cid:
+            return
+        # 1) Dispatch the Windows action FIRST (instant, local)
+        self.dispatcher.handle(cid, msg)
+        # 2) Then queue an async report for the dashboard (never blocks)
+        self._report(msg, cid)
+        # 3) Print only if not throttled (continuous CCs are noisy)
+        if DEBUG or msg.type not in ("control_change", "pitchwheel"):
+            self._log_msg(msg, cid)
+
+    def _log_msg(self, msg: Msg, cid: str):
         if msg.type == "control_change":
             raw = f"CC ch={msg.channel} #{msg.control}={msg.value}"
         elif msg.type == "note_on":
@@ -577,11 +645,7 @@ class HelperClient:
             raw = f"Pitch ch={msg.channel} val={msg.pitch}"
         else:
             raw = msg.type
-        print(f"[MIDI] {raw}  -> {cid or '(no mapping for this control — add it to MIDI_MAP_OVERRIDES)'}")
-        if not cid:
-            return
-        self._report(msg, cid)
-        self.dispatcher.handle(cid, msg)
+        print(f"[MIDI] {raw}  -> {cid}")
 
     def _find_launchkey(self) -> Optional[str]:
         try:
@@ -645,6 +709,8 @@ class HelperClient:
             threading.Thread(target=self.sessions_loop, daemon=True),
             threading.Thread(target=self.state_loop, daemon=True),
             threading.Thread(target=self.midi_loop, daemon=True),
+            threading.Thread(target=self.report_loop, daemon=True),
+            threading.Thread(target=self.report_loop, daemon=True),  # 2 workers for snappier dashboard updates
         ]
         for t in threads:
             t.start()

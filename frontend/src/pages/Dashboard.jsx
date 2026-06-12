@@ -73,7 +73,7 @@ export default function Dashboard() {
       } catch (e) { /* offline */ }
     }
     tick();
-    const id = setInterval(tick, 700);
+    const id = setInterval(tick, 250);
     return () => { stop = true; clearInterval(id); };
   }, [midiLearn]);
 
