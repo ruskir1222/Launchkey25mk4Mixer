@@ -57,9 +57,39 @@ export default function Setup() {
           During install, check the &ldquo;Add Python to PATH&rdquo; option.
         </Step>
 
-        <Step n={2} title="Install required packages">
-          Open <span className="font-mono text-white">PowerShell</span> or <span className="font-mono text-white">cmd</span> and run:
-          <Code>pip install mido python-rtmidi pycaw comtypes requests pynput</Code>
+        <Step n={2} title="Install required packages (one-click)">
+          <p className="mb-1">
+            <span className="text-brand">Hit the error <span className="font-mono">&ldquo;Preparing metadata (pyproject.toml)&rdquo;</span>?</span>{" "}
+            That&apos;s <span className="font-mono">python-rtmidi</span> trying to compile from source.
+            Use the installer below — it forces pre-built wheels and avoids the C++ build entirely.
+          </p>
+          <div className="flex flex-wrap gap-2 my-3">
+            <a href={`${API}/helper/install-script`} download>
+              <Button className="rounded-sm bg-brand hover:bg-brand-dim text-black font-mono">
+                <Download className="w-4 h-4 mr-2" />
+                DOWNLOAD install_windows.bat
+              </Button>
+            </a>
+            <a href={`${API}/helper/requirements`} download>
+              <Button variant="outline" className="rounded-sm border-[#262626] bg-surface hover:bg-[#1a1a1a] font-mono">
+                <Download className="w-4 h-4 mr-2" />
+                requirements.txt
+              </Button>
+            </a>
+          </div>
+          <p>Double-click <span className="font-mono text-white">install_windows.bat</span> — done.</p>
+          <p className="mt-3 text-neutral-500">Prefer the manual route?</p>
+          <Code>{`python -m pip install --upgrade pip setuptools wheel
+python -m pip install mido pycaw comtypes requests pynput
+python -m pip install --only-binary=:all: python-rtmidi`}</Code>
+          <div className="mt-3 p-3 bg-[#0a0a0a] border border-[#1f1f1f] rounded-sm text-[12px] text-neutral-400">
+            <div className="text-warning font-mono mb-1">If python-rtmidi STILL fails:</div>
+            <ul className="list-disc pl-5 space-y-0.5">
+              <li>Easiest: install <span className="font-mono">Python 3.11 or 3.12</span> (best wheel coverage) and re-run.</li>
+              <li>Or install <span className="font-mono">Microsoft C++ Build Tools</span> (workload: &ldquo;Desktop development with C++&rdquo;) then re-run the command.</li>
+              <li>Pin a known-good wheel: <span className="font-mono">pip install --only-binary=:all: &quot;python-rtmidi==1.5.8&quot;</span></li>
+            </ul>
+          </div>
         </Step>
 
         <Step n={3} title="Download the helper script">

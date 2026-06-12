@@ -274,6 +274,30 @@ async def download_helper():
     )
 
 
+@api_router.get("/helper/requirements")
+async def download_requirements():
+    path = ROOT_DIR / "helper" / "requirements.txt"
+    if not path.exists():
+        raise HTTPException(404, "requirements not found")
+    return Response(
+        content=path.read_text(),
+        media_type="text/plain",
+        headers={"Content-Disposition": "attachment; filename=requirements.txt"},
+    )
+
+
+@api_router.get("/helper/install-script")
+async def download_install_script():
+    path = ROOT_DIR / "helper" / "install_windows.bat"
+    if not path.exists():
+        raise HTTPException(404, "install script not found")
+    return Response(
+        content=path.read_text(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment; filename=install_windows.bat"},
+    )
+
+
 # ---------- Root ----------
 @api_router.get("/")
 async def root():
