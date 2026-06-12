@@ -1151,18 +1151,37 @@ class HelperClient:
         cid = control_id_from_msg(msg)
         if not cid:
             return
-        # Remember the (channel, note) any pad-ish event came on, so LEDs
-        # can light THAT specific note even if the device is in Session/Scale
-        # mode and sending non-standard notes.
         if msg.type in ("note_on", "note_off") and msg.note is not None:
             self._physical_pads[cid] = (msg.channel, msg.note)
         # 1) Dispatch the Windows action FIRST (instant, local)
         had_action = self.dispatcher.handle(cid, msg)
+        # 1.5) Echo LED back to the SAME note/channel that just fired, if mapped
+        if had_action and msg.type == "note_on" and (msg.velocity or 0) > 0 and msg.note is not None:
+            m = self.dispatcher.mappings.get(cid)
+            if m and self._midi_out.opened:
+                color = self._color_for_mapping(m)
+                self._midi_out.send_short(0x90 | (msg.channel & 0x0F), msg.note & 0x7F, color & 0x7F)
+                print(f"[LED] echo -> ch{msg.channel} note={msg.note} color={color}")
         # 2) Then queue an async report for the dashboard (never blocks)
         self._report(msg, cid)
-        # 3) Print: triggers always, continuous only in debug
+        # 3) Print
         if DEBUG or msg.type not in ("control_change", "pitchwheel"):
             self._log_msg(msg, cid, had_action)
+
+    def _color_for_mapping(self, m: dict) -> int:
+        params = m.get("params") or {}
+        user_color = params.get("led_color")
+        if isinstance(user_color, int) and 0 <= user_color <= 127:
+            return user_color
+        act = m.get("action_type") or ""
+        if act in ("toggle_mute", "mute", "kill_app"): return PAD_COLORS["red"]
+        if act == "set_volume": return PAD_COLORS["green"]
+        if act == "launch_app": return PAD_COLORS["blue"]
+        if act == "open_url": return PAD_COLORS["cyan"]
+        if act == "send_keystroke": return PAD_COLORS["purple"]
+        if act == "run_command": return PAD_COLORS["yellow"]
+        if act.startswith("media_"): return PAD_COLORS["pink"]
+        return PAD_COLORS["orange"]
 
     def _log_msg(self, msg: Msg, cid: str, had_action: bool = False):
         if msg.type == "control_change":
@@ -1175,7 +1194,7 @@ class HelperClient:
             raw = f"Pitch ch={msg.channel} val={msg.pitch}"
         else:
             raw = msg.type
-        suffix = "" if had_action else "   (no mapping — use MIDI LEARN on dashboard)"
+        suffix = "" if had_action else "   (not bound)"
         print(f"[MIDI] {raw}  -> {cid}{suffix}")
 
     def _find_launchkey_ports(self) -> List[str]:
