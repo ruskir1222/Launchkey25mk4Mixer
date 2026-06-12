@@ -42,30 +42,67 @@ SESSIONS_INTERVAL = 2.0
 DEBUG = False
 
 
-# --- Default Novation Launchkey MK3 MIDI map ------------------------------
-DEFAULT_MIDI_MAP = {
-    "cc": {
-        21: "knob-1", 22: "knob-2", 23: "knob-3", 24: "knob-4",
-        25: "knob-5", 26: "knob-6", 27: "knob-7", 28: "knob-8",
-        1: "mod-wheel",
-        102: "track-down", 103: "track-up",
-        104: "scene-up", 105: "scene-down",
-        115: "transport-play",
-        116: "transport-stop",
-        117: "transport-record",
-        118: "transport-loop",
-    },
-    "note": {
-        40: "pad-1", 41: "pad-2", 42: "pad-3", 43: "pad-4",
-        44: "pad-5", 45: "pad-6", 46: "pad-7", 47: "pad-8",
-        48: "pad-9", 49: "pad-10", 50: "pad-11", 51: "pad-12",
-        52: "pad-13", 53: "pad-14", 54: "pad-15", 55: "pad-16",
-    },
-}
-for _n in range(48, 85):
-    DEFAULT_MIDI_MAP["note"].setdefault(_n, f"key-{_n - 47}")
+# --- Default Novation Launchkey MIDI map (MK3 + MK4 + Mini) ---------------
+# Strategy: knobs match by CC number alone (channel-agnostic).
+# Pads are matched by (channel, note) on the drum channel (commonly ch 9
+# zero-indexed = "channel 10" in 1-indexed terms). Keys are anything on a
+# non-drum channel and are auto-numbered relative to the lowest note seen.
 
-MIDI_MAP_OVERRIDES: Dict[str, Dict[int, str]] = {}
+CC_MAP: Dict[int, str] = {
+    21: "knob-1", 22: "knob-2", 23: "knob-3", 24: "knob-4",
+    25: "knob-5", 26: "knob-6", 27: "knob-7", 28: "knob-8",
+    1: "mod-wheel",
+    102: "track-down", 103: "track-up",
+    104: "scene-up", 105: "scene-down",
+    115: "transport-play",
+    116: "transport-stop",
+    117: "transport-record",
+    118: "transport-loop",
+}
+
+# Pads. Different Launchkey models use different note ranges. We accept BOTH
+# the MK3 range (40..55) and the MK4 range (36..51) on channel 9.
+PAD_NOTES: Dict[int, str] = {}
+# MK4 / standard drum layout: bottom row 36..43, top row 44..51
+for i, n in enumerate(range(36, 44)):
+    PAD_NOTES[n] = f"pad-{i + 9}"   # bottom physical row -> pads 9..16
+for i, n in enumerate(range(44, 52)):
+    PAD_NOTES[n] = f"pad-{i + 1}"   # top physical row -> pads 1..8
+# MK3 InControl extras (won't clash because they're outside 36..51)
+for i, n in enumerate(range(40, 48)):
+    PAD_NOTES.setdefault(n, f"pad-{i + 1}")
+for i, n in enumerate(range(48, 56)):
+    PAD_NOTES.setdefault(n, f"pad-{i + 9}")
+
+PAD_CHANNELS = {9, 15}   # 9 = standard drum / MK4 ; 15 = MK3 InControl
+DRUM_CHANNELS = PAD_CHANNELS
+
+# Keys: anything on non-drum channels. Mapped to key-1, key-2, ... by
+# subtracting the configured base note. Default base = lowest C below E3 (48).
+KEY_BASE_NOTE = 36  # C2 — covers 25/37/49/61-key models comfortably
+
+# Optional user overrides
+MIDI_MAP_OVERRIDES: Dict[str, Dict] = {"cc": {}, "note": {}}
+
+
+def control_id_from_msg(msg: "Msg") -> Optional[str]:
+    if msg.type == "control_change":
+        return MIDI_MAP_OVERRIDES["cc"].get(msg.control) or CC_MAP.get(msg.control)
+    if msg.type in ("note_on", "note_off"):
+        # explicit override
+        ov = MIDI_MAP_OVERRIDES["note"].get(msg.note)
+        if ov:
+            return ov
+        # pad? (drum channels)
+        if msg.channel in DRUM_CHANNELS and msg.note in PAD_NOTES:
+            return PAD_NOTES[msg.note]
+        # else treat as a piano key
+        idx = msg.note - KEY_BASE_NOTE + 1
+        if 1 <= idx <= 88:
+            return f"key-{idx}"
+    if msg.type == "pitchwheel":
+        return "pitch-wheel"
+    return None
 
 
 # Lightweight Msg shim so all 3 backends produce the same object shape
@@ -80,16 +117,6 @@ class Msg:
         self.value = value
         self.velocity = velocity
         self.pitch = pitch
-
-
-def control_id_from_msg(msg: Msg) -> Optional[str]:
-    if msg.type == "control_change":
-        return MIDI_MAP_OVERRIDES.get("cc", {}).get(msg.control) or DEFAULT_MIDI_MAP["cc"].get(msg.control)
-    if msg.type in ("note_on", "note_off"):
-        return MIDI_MAP_OVERRIDES.get("note", {}).get(msg.note) or DEFAULT_MIDI_MAP["note"].get(msg.note)
-    if msg.type == "pitchwheel":
-        return "pitch-wheel"
-    return None
 
 
 # ============================================================
