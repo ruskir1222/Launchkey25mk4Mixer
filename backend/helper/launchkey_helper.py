@@ -568,17 +568,24 @@ class MidiOut:
 
     def enter_daw_mode(self):
         """Tell the Launchkey to accept host-driven pad LED commands.
-        Tries published SysEx for MK3, MK4, MK4 Mini. Harmless if device ignores it."""
-        # Format: F0 00 20 29 02 <product> 10 <on=1/off=0> F7
+        For MK4 / MK4 Mini we ALSO send the Programmer-Mode handshake which is
+        the magic byte that unlocks LED override on top of the default drum colors.
+        Harmless on devices that don't implement it."""
+        # DAW Mode (cmd 10): F0 00 20 29 02 <product> 10 01 F7
         for product in (0x0F, 0x14, 0x13, 0x11, 0x12):
             self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x10, 0x01, 0xF7]))
-        print("[LED] Sent DAW-mode SysEx (MK3 / MK4 / Mini MK4 variants).")
-        # Some MK4 Minis also want a "host mode" handshake — send the
-        # generic Novation "enable host control" SysEx as well.
-        self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, 0x13, 0x0A, 0x7F, 0x7F, 0xF7]))
+        # Programmer Mode (cmd 0E) — the one MK4 actually needs for LED override
+        for product in (0x0F, 0x14, 0x13, 0x11, 0x12):
+            self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x0E, 0x01, 0xF7]))
+        # Some MK4 firmwares additionally need "enable session-mode LED": cmd 0A 7F 7F
+        for product in (0x13, 0x14):
+            self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x0A, 0x7F, 0x7F, 0xF7]))
+        print("[LED] Sent DAW + Programmer Mode SysEx (MK3 / MK4 / Mini variants).")
 
     def exit_daw_mode(self):
+        # Exit Programmer Mode + DAW Mode
         for product in (0x0F, 0x14, 0x13, 0x11, 0x12):
+            self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x0E, 0x00, 0xF7]))
             self.send_sysex(bytes([0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x10, 0x00, 0xF7]))
 
     def light_pad(self, midi_note: int, color: int, channel: int = 9):
@@ -1168,6 +1175,12 @@ class HelperClient:
                 #    Format: F0 00 20 29 02 <product> 03 00 <pad_addr> <color> F7
                 #    Pad address is tried as: raw note, 0x60 + lower-nibble, drum note (36 + n%16).
                 addresses = {n, 0x60 + (n & 0x0F), 0x40 + (n & 0x0F), 36 + (n & 0x0F)}
+                # MK4-specific: bottom row notes 36-43 → pad indices 0x60-0x67
+                # top row notes 44-51 → pad indices 0x68-0x6F. Add those too.
+                if 36 <= n <= 43:
+                    addresses.add(0x60 + (n - 36))
+                if 44 <= n <= 51:
+                    addresses.add(0x68 + (n - 44))
                 for product in (0x0E, 0x0F, 0x13, 0x14, 0x11, 0x12):
                     for addr in addresses:
                         self._midi_out.send_sysex(bytes([
