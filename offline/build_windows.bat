@@ -104,6 +104,15 @@ echo === [4/5] Installing Python build dependencies ===
 if errorlevel 1 goto :fail
 
 echo.
+echo --- Trying optional python-rtmidi (binary-only, faster MIDI) ---
+%PY% -m pip install --only-binary=:all: python-rtmidi
+if errorlevel 1 (
+    echo *** python-rtmidi binary wheel not available for your Python version.
+    echo *** No problem - the helper will use the built-in winmm.dll backend.
+    set ERRORLEVEL=0
+)
+
+echo.
 echo === [5/5] Packaging single-file exe with PyInstaller ===
 %PY% -m PyInstaller --noconfirm --clean LaunchkeyMixer.spec
 if errorlevel 1 goto :fail

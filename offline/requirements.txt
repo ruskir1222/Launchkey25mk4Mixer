@@ -6,7 +6,8 @@ requests==2.32.3
 pycaw==20240210
 comtypes==1.4.5
 pynput==1.7.7
-# python-rtmidi is optional but improves MIDI latency; fall back to winmm.dll if missing
-python-rtmidi==1.5.8
 # Bundler
 pyinstaller==6.6.0
+# Note: python-rtmidi is installed separately by build_windows.bat with --only-binary=:all:
+# If the binary wheel is unavailable for your Python version, the helper falls back to
+# the built-in winmm.dll backend automatically — no compiler needed.

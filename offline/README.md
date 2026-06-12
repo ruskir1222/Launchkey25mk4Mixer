@@ -80,7 +80,7 @@ Plug in your Launchkey Mini MK4 25 *before* launching for fastest detection.
 
 **Port already in use** — Set `LAUNCHKEY_PORT=9000` env var before launching.
 
-**python-rtmidi fails to install during build** — The helper has a built-in `winmm.dll` fallback; you can skip rtmidi by editing `requirements.txt` and removing the `python-rtmidi==1.5.8` line.
+**python-rtmidi fails to install during build** — Handled automatically. The build script now installs it with `--only-binary=:all:` and skips on failure; the helper falls back to the built-in `winmm.dll` backend, which works fine for the Launchkey Mini MK4 25. If you ever want rtmidi, install Python 3.11 or 3.12 (best wheel coverage).
 
 ---
 
