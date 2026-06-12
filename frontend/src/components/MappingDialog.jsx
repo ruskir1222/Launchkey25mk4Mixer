@@ -15,6 +15,11 @@ const ACTION_OPTIONS = [
   { value: "toggle_mute", label: "Toggle Mute of App", needsTarget: true, kind: "trigger" },
   { value: "volume_step_up", label: "Step Volume Up (+5%)", needsTarget: true, kind: "trigger" },
   { value: "volume_step_down", label: "Step Volume Down (−5%)", needsTarget: true, kind: "trigger" },
+  { value: "launch_app", label: "Launch App / File / Shortcut", needsTarget: false, kind: "trigger", paramKey: "path", paramLabel: "Path or shortcut", paramPlaceholder: "C:\\Windows\\notepad.exe   OR   spotify   OR   D:\\game.lnk" },
+  { value: "kill_app", label: "Close App (force quit by process name)", needsTarget: false, kind: "trigger", paramKey: "process", paramLabel: "Process name", paramPlaceholder: "chrome.exe" },
+  { value: "open_url", label: "Open URL in Browser", needsTarget: false, kind: "trigger", paramKey: "url", paramLabel: "URL", paramPlaceholder: "https://youtube.com" },
+  { value: "send_keystroke", label: "Send Keystroke / Hotkey", needsTarget: false, kind: "trigger", paramKey: "keys", paramLabel: "Key combo", paramPlaceholder: "ctrl+shift+m  or  alt+f4  or  win+d" },
+  { value: "run_command", label: "Run Shell Command", needsTarget: false, kind: "trigger", paramKey: "command", paramLabel: "Command line", paramPlaceholder: 'powershell -c "Get-Date"' },
   { value: "media_play_pause", label: "Media · Play / Pause", needsTarget: false, kind: "trigger" },
   { value: "media_next", label: "Media · Next Track", needsTarget: false, kind: "trigger" },
   { value: "media_prev", label: "Media · Previous Track", needsTarget: false, kind: "trigger" },
@@ -44,6 +49,7 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
   const [label, setLabel] = useState(mapping?.label || "");
   const [invert, setInvert] = useState(!!mapping?.params?.invert);
   const [uiAlias, setUiAlias] = useState(mapping?.ui_alias || "");
+  const [paramValue, setParamValue] = useState("");
 
   useEffect(() => {
     setActionType(mapping?.action_type || "set_volume");
@@ -52,20 +58,30 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
     setInvert(!!mapping?.params?.invert);
     setUiAlias(mapping?.ui_alias || "");
     setCustomTarget(false);
+    const act = ACTION_OPTIONS.find(a => a.value === (mapping?.action_type || "set_volume"));
+    setParamValue(act?.paramKey ? (mapping?.params?.[act.paramKey] || "") : "");
   }, [mapping, controlId]);
 
   const action = useMemo(() => ACTION_OPTIONS.find(a => a.value === actionType), [actionType]);
   const needsTarget = action?.needsTarget;
+  const hasParam = !!action?.paramKey;
 
   const handleSave = () => {
     if (needsTarget && !target.trim()) {
       toast.error("Target app required", { description: "Choose a running app or type a process name." });
       return;
     }
+    if (hasParam && !paramValue.trim()) {
+      toast.error(`${action.paramLabel} required`, { description: action.paramPlaceholder });
+      return;
+    }
+    const params = {};
+    if (action?.kind === "continuous") params.invert = invert;
+    if (hasParam) params[action.paramKey] = paramValue.trim();
     onSave({
       action_type: actionType,
       target_app: needsTarget ? target : null,
-      params: action?.kind === "continuous" ? { invert } : {},
+      params,
       label: label || null,
       ui_alias: uiAlias || null,
     });
@@ -148,6 +164,29 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
                 <div className="text-[11px] text-neutral-500">Reverse low/high values</div>
               </div>
               <Switch checked={invert} onCheckedChange={setInvert} />
+            </div>
+          )}
+
+          {hasParam && (
+            <div className="space-y-1.5">
+              <Label className="text-xs font-mono text-neutral-400 uppercase tracking-wider">{action.paramLabel}</Label>
+              <Input
+                data-testid="mapping-param-input"
+                value={paramValue}
+                onChange={(e) => setParamValue(e.target.value)}
+                placeholder={action.paramPlaceholder}
+                className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono"
+              />
+              {action.value === "send_keystroke" && (
+                <div className="text-[10px] font-mono text-neutral-500 leading-relaxed">
+                  Modifiers: <span className="text-neutral-300">ctrl · shift · alt · win</span> · keys: letters, f1–f12, esc, enter, tab, space, arrows, home, end, pageup, pagedown, delete, backspace.
+                </div>
+              )}
+              {action.value === "launch_app" && (
+                <div className="text-[10px] font-mono text-neutral-500">
+                  Tip: just type an app name like <span className="text-neutral-300">spotify</span> or <span className="text-neutral-300">notepad</span>, a full path, or a .lnk shortcut.
+                </div>
+              )}
             </div>
           )}
 

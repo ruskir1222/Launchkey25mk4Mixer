@@ -281,6 +281,245 @@ def media_key(action: str):
 
 
 # ============================================================
+# App launching / killing / shell / keystrokes
+# ============================================================
+import subprocess
+import shlex
+import webbrowser
+
+
+def launch_app(path_or_cmd: str) -> bool:
+    """Start an executable, document, or URL handler. Uses shell so .lnk shortcuts,
+    Start-menu names, full paths and Windows app aliases (e.g. `notepad`, `code`,
+    `spotify:`) all work."""
+    if not path_or_cmd:
+        print("[launch] no path/command provided")
+        return False
+    try:
+        # os.startfile is the most permissive on Windows
+        if sys.platform == "win32":
+            import os as _os
+            # If it looks like a URL or registered scheme, use startfile/webbrowser
+            if "://" in path_or_cmd:
+                webbrowser.open(path_or_cmd)
+                print(f"[launch] URL: {path_or_cmd}")
+                return True
+            try:
+                _os.startfile(path_or_cmd)  # type: ignore[attr-defined]
+                print(f"[launch] started: {path_or_cmd}")
+                return True
+            except Exception:
+                # Fall through to subprocess
+                pass
+        subprocess.Popen(path_or_cmd, shell=True)
+        print(f"[launch] spawned: {path_or_cmd}")
+        return True
+    except Exception as e:
+        print(f"[launch] error '{path_or_cmd}': {e}")
+        return False
+
+
+def kill_app(process_name: str) -> bool:
+    """Force-close all processes with the given exe name (e.g. 'chrome.exe')."""
+    if not process_name:
+        return False
+    try:
+        if sys.platform == "win32":
+            r = subprocess.run(
+                ["taskkill", "/F", "/IM", process_name],
+                capture_output=True, text=True
+            )
+            ok = r.returncode == 0
+            msg = (r.stdout or r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr) else ""
+            print(f"[kill] {process_name}: {'OK' if ok else 'FAIL'} {msg}")
+            return ok
+        else:
+            r = subprocess.run(["pkill", "-f", process_name], capture_output=True)
+            return r.returncode == 0
+    except Exception as e:
+        print(f"[kill] error: {e}")
+        return False
+
+
+def open_url(url: str) -> bool:
+    if not url:
+        return False
+    try:
+        webbrowser.open(url)
+        print(f"[url] opened: {url}")
+        return True
+    except Exception as e:
+        print(f"[url] error: {e}")
+        return False
+
+
+def run_command(cmd: str) -> bool:
+    """Run an arbitrary shell command (DETACHED). Use for power-user macros."""
+    if not cmd:
+        return False
+    try:
+        subprocess.Popen(cmd, shell=True)
+        print(f"[cmd] ran: {cmd}")
+        return True
+    except Exception as e:
+        print(f"[cmd] error: {e}")
+        return False
+
+
+# Keystroke combo. Format: "ctrl+shift+m" or "alt+f4" or "win+d" or "f5" or "cmd+`"
+_SPECIAL_KEYS = {
+    "ctrl": Key.ctrl if _kbd else None,
+    "control": Key.ctrl if _kbd else None,
+    "shift": Key.shift if _kbd else None,
+    "alt": Key.alt if _kbd else None,
+    "win": Key.cmd if _kbd else None,
+    "cmd": Key.cmd if _kbd else None,
+    "super": Key.cmd if _kbd else None,
+    "esc": Key.esc if _kbd else None,
+    "escape": Key.esc if _kbd else None,
+    "enter": Key.enter if _kbd else None,
+    "return": Key.enter if _kbd else None,
+    "tab": Key.tab if _kbd else None,
+    "space": Key.space if _kbd else None,
+    "backspace": Key.backspace if _kbd else None,
+    "delete": Key.delete if _kbd else None,
+    "del": Key.delete if _kbd else None,
+    "home": Key.home if _kbd else None,
+    "end": Key.end if _kbd else None,
+    "pageup": Key.page_up if _kbd else None,
+    "pagedown": Key.page_down if _kbd else None,
+    "up": Key.up if _kbd else None,
+    "down": Key.down if _kbd else None,
+    "left": Key.left if _kbd else None,
+    "right": Key.right if _kbd else None,
+    **{f"f{i}": getattr(Key, f"f{i}") if _kbd else None for i in range(1, 13)},
+}
+
+
+def send_keystroke(combo: str) -> bool:
+    if _kbd is None:
+        print("[keys] pynput unavailable")
+        return False
+    if not combo:
+        return False
+    try:
+        parts = [p.strip().lower() for p in combo.split("+") if p.strip()]
+        held = []
+        last = None
+        for p in parts:
+            k = _SPECIAL_KEYS.get(p)
+            if k is not None:
+                held.append(k)
+            elif len(p) == 1:
+                last = p
+            else:
+                # Multi-char that isn't a known special — treat as literal sequence
+                last = p
+        # Press modifiers, tap last, release modifiers
+        for k in held:
+            _kbd.press(k)
+        if last:
+            if len(last) == 1:
+                _kbd.press(last); _kbd.release(last)
+            else:
+                _kbd.type(last)
+        for k in reversed(held):
+            _kbd.release(k)
+        print(f"[keys] {combo}")
+        return True
+    except Exception as e:
+        print(f"[keys] error '{combo}': {e}")
+        return False
+
+
+# ============================================================
+# MIDI OUTPUT (Windows winmm) — for RGB pad LED feedback
+# ============================================================
+class MidiOut:
+    """Pure-ctypes MIDI output. Used to light pads on the Launchkey."""
+    MMSYSERR_NOERROR = 0
+
+    def __init__(self):
+        self.winmm = ctypes.WinDLL("winmm") if sys.platform == "win32" else None
+        self._handle = wintypes.HANDLE() if self.winmm else None
+        self.opened = False
+
+    def list_outputs(self) -> List[str]:
+        if not self.winmm:
+            return []
+        n = self.winmm.midiOutGetNumDevs()
+        out = []
+        class MIDIOUTCAPSW(ctypes.Structure):
+            _fields_ = [
+                ("wMid", wintypes.WORD),
+                ("wPid", wintypes.WORD),
+                ("vDriverVersion", wintypes.DWORD),
+                ("szPname", wintypes.WCHAR * 32),
+                ("wTechnology", wintypes.WORD),
+                ("wVoices", wintypes.WORD),
+                ("wNotes", wintypes.WORD),
+                ("wChannelMask", wintypes.WORD),
+                ("dwSupport", wintypes.DWORD),
+            ]
+        for i in range(n):
+            caps = MIDIOUTCAPSW()
+            if self.winmm.midiOutGetDevCapsW(i, ctypes.byref(caps), ctypes.sizeof(caps)) == 0:
+                out.append(caps.szPname)
+        return out
+
+    def open(self, port_name_substring: str = "launchkey") -> bool:
+        if not self.winmm:
+            return False
+        ports = self.list_outputs()
+        # Prefer DAW port (MIDIIN2/InControl/DAW) for LEDs on MK3/MK4
+        candidates = [p for p in ports if port_name_substring.lower() in p.lower()]
+        if not candidates:
+            return False
+        # MK4: the DAW out port lights the pads. Look for that first; fallback to main.
+        for needle in ("daw", "midiin2", "incontrol"):
+            for p in candidates:
+                if needle in p.lower():
+                    return self._open_index(p, ports)
+        return self._open_index(candidates[0], ports)
+
+    def _open_index(self, port_name: str, ports: List[str]) -> bool:
+        idx = ports.index(port_name)
+        h = wintypes.HANDLE()
+        rc = self.winmm.midiOutOpen(ctypes.byref(h), idx, None, None, 0)
+        if rc != self.MMSYSERR_NOERROR:
+            print(f"[LED] midiOutOpen '{port_name}' failed code {rc}")
+            return False
+        self._handle = h
+        self.opened = True
+        print(f"[LED] Output opened: {port_name}")
+        return True
+
+    def close(self):
+        if self.opened and self.winmm:
+            try: self.winmm.midiOutClose(self._handle)
+            except Exception: pass
+        self.opened = False
+
+    def send_short(self, status: int, data1: int, data2: int):
+        if not self.opened or not self.winmm:
+            return
+        msg = (status & 0xFF) | ((data1 & 0xFF) << 8) | ((data2 & 0xFF) << 16)
+        self.winmm.midiOutShortMsg(self._handle, ctypes.c_uint(msg))
+
+    # Convenience: light a pad. For Launchkey Mini MK3/MK4 in drum mode the
+    # pads accept Note On (0x99) with velocity = palette color index.
+    def light_pad(self, midi_note: int, color: int, channel: int = 9):
+        self.send_short(0x90 | (channel & 0x0F), midi_note & 0x7F, color & 0x7F)
+
+
+# Novation palette short-list (MK3 / MK4 friendly)
+PAD_COLORS = {
+    "off": 0, "white": 3, "red": 5, "orange": 9, "yellow": 13,
+    "green": 21, "cyan": 33, "blue": 41, "purple": 49, "pink": 53,
+}
+
+
+# ============================================================
 # MIDI BACKENDS
 # ============================================================
 class MidiBackend:
@@ -529,6 +768,16 @@ class Dispatcher:
                 toggle_app_mute(target); return True
             if action in ("media_play_pause", "media_next", "media_prev", "media_stop"):
                 media_key(action); return True
+            if action == "launch_app":
+                launch_app(params.get("path") or target or ""); return True
+            if action == "kill_app":
+                kill_app(params.get("process") or target or ""); return True
+            if action == "open_url":
+                open_url(params.get("url") or target or ""); return True
+            if action == "send_keystroke":
+                send_keystroke(params.get("keys") or ""); return True
+            if action == "run_command":
+                run_command(params.get("command") or ""); return True
             if action == "volume_step_up" and target:
                 step = float(params.get("step", 0.05))
                 for s in list_sessions():
@@ -568,6 +817,9 @@ class HelperClient:
         # Reusable HTTP session — keep-alive cuts ~50-100ms per request
         self._http = requests.Session()
         self._http.headers.update({"Connection": "keep-alive"})
+        # MIDI output for RGB LED feedback (best-effort)
+        self._midi_out = MidiOut()
+        self._led_opened_once = False
 
     def post(self, path, body):
         try:
@@ -608,11 +860,60 @@ class HelperClient:
             self.stop_evt.wait(SESSIONS_INTERVAL)
 
     def state_loop(self):
+        prev_pad_state = {}
         while not self.stop_evt.is_set():
             data = self.get("/helper/state")
             if data and "mappings" in data:
                 self.dispatcher.update_mappings(data["mappings"])
+                # Refresh LED feedback for pads when mappings change
+                if not self._led_opened_once and self.device_connected:
+                    self._led_opened_once = True
+                    self._midi_out.open("launchkey")
+                self._refresh_pad_leds(data["mappings"], prev_pad_state)
             self.stop_evt.wait(POLL_INTERVAL)
+
+    def _refresh_pad_leds(self, mappings, prev_state):
+        """Light pads on the device to reflect their bound state.
+        Currently: bound pad = orange (color 9). Unbound = off."""
+        if not self._midi_out.opened:
+            return
+        # Build pad-index -> color map from mappings
+        wanted: Dict[int, int] = {}
+        for m in mappings:
+            cid = m.get("control_id") or ""
+            ui_alias = m.get("ui_alias") or ""
+            pad_idx = None
+            for src in (cid, ui_alias):
+                if src.startswith("pad-"):
+                    try: pad_idx = int(src.split("-", 1)[1])
+                    except: pass
+                    break
+            if pad_idx is None or pad_idx < 1 or pad_idx > 16:
+                continue
+            # Pick color by action type
+            act = m.get("action_type") or ""
+            color = PAD_COLORS["orange"]
+            if act in ("toggle_mute", "mute"): color = PAD_COLORS["red"]
+            elif act == "set_volume": color = PAD_COLORS["green"]
+            elif act == "launch_app": color = PAD_COLORS["blue"]
+            elif act == "kill_app": color = PAD_COLORS["red"]
+            elif act == "open_url": color = PAD_COLORS["cyan"]
+            elif act == "send_keystroke": color = PAD_COLORS["purple"]
+            elif act == "run_command": color = PAD_COLORS["yellow"]
+            elif act.startswith("media_"): color = PAD_COLORS["pink"]
+            wanted[pad_idx] = color
+        # Map pad-index -> MIDI note (top row=pads 1..8 -> notes 44..51, bottom 9..16 -> 36..43)
+        def pad_to_note(idx: int) -> int:
+            if 1 <= idx <= 8:
+                return 43 + idx   # top: 44..51
+            return 35 + (idx - 8)  # bottom: 36..43
+        # Send updates only for changed pads
+        for idx in range(1, 17):
+            color = wanted.get(idx, PAD_COLORS["off"])
+            if prev_state.get(idx) == color:
+                continue
+            prev_state[idx] = color
+            self._midi_out.light_pad(pad_to_note(idx), color)
 
     def _report(self, msg: Msg, cid: str):
         """Throttled async report — never blocks the MIDI callback."""
