@@ -3,8 +3,27 @@ import { LK } from "@/constants/testIds";
 import { ArrowLeft, Download, Terminal as TerminalIcon, CheckCircle2 } from "lucide-react";
 import { API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+
+async function downloadBlob(url, filename) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
+  } catch (e) {
+    toast.error("Download failed", { description: String(e) });
+  }
+}
 
 function Code({ children }) {
   return (
@@ -64,18 +83,21 @@ export default function Setup() {
             Use the installer below — it forces pre-built wheels and avoids the C++ build entirely.
           </p>
           <div className="flex flex-wrap gap-2 my-3">
-            <a href={`${API}/helper/install-script`} download>
-              <Button className="rounded-sm bg-brand hover:bg-brand-dim text-black font-mono">
-                <Download className="w-4 h-4 mr-2" />
-                DOWNLOAD install_windows.bat
-              </Button>
-            </a>
-            <a href={`${API}/helper/requirements`} download>
-              <Button variant="outline" className="rounded-sm border-[#262626] bg-surface hover:bg-[#1a1a1a] font-mono">
-                <Download className="w-4 h-4 mr-2" />
-                requirements.txt
-              </Button>
-            </a>
+            <Button
+              onClick={() => downloadBlob(`${API}/helper/install-script`, "install_windows.bat")}
+              className="rounded-sm bg-brand hover:bg-brand-dim text-black font-mono"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              DOWNLOAD install_windows.bat
+            </Button>
+            <Button
+              onClick={() => downloadBlob(`${API}/helper/requirements`, "requirements.txt")}
+              variant="outline"
+              className="rounded-sm border-[#262626] bg-surface hover:bg-[#1a1a1a] font-mono"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              requirements.txt
+            </Button>
           </div>
           <p>Double-click <span className="font-mono text-white">install_windows.bat</span> — done.</p>
           <p className="mt-3 text-neutral-500">Prefer the manual route?</p>
@@ -93,13 +115,15 @@ python -m pip install --only-binary=:all: python-rtmidi`}</Code>
         </Step>
 
         <Step n={3} title="Download the helper script">
-          <a href={`${API}/helper/script`} download>
-            <Button data-testid={LK.downloadScript} className="rounded-sm bg-brand hover:bg-brand-dim text-black font-mono">
-              <Download className="w-4 h-4 mr-2" />
-              DOWNLOAD launchkey_helper.py
-            </Button>
-          </a>
-          <p className="mt-2">Save it anywhere convenient (e.g. <span className="font-mono">C:\Tools\</span>).</p>
+          <Button
+            data-testid={LK.downloadScript}
+            onClick={() => downloadBlob(`${API}/helper/script`, "launchkey_helper.py")}
+            className="rounded-sm bg-brand hover:bg-brand-dim text-black font-mono"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            DOWNLOAD launchkey_helper.py
+          </Button>
+          <p className="mt-2">Save it next to <span className="font-mono text-white">install_windows.bat</span> (e.g. <span className="font-mono">C:\Tools\</span>).</p>
         </Step>
 
         <Step n={4} title="Point the helper at this dashboard">
