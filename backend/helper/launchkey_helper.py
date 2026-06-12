@@ -178,26 +178,33 @@ def list_sessions() -> List[Dict[str, Any]]:
     return dedup
 
 
-def set_app_volume(name: str, volume: float):
+def set_app_volume(name: str, volume: float) -> bool:
     if not _HAS_PYCAW:
-        return
+        return False
     volume = max(0.0, min(1.0, volume))
     try:
         v = _get_cached_volume(name)
         if v is not None:
             v.SetMasterVolume(volume, None)
-            return
+            return True
         # cache miss — slow path
+        found = 0
         for s in AudioUtilities.GetAllSessions():
             if s.Process and s.Process.name().lower() == name.lower():
-                iface = s._ctl.QueryInterface(ISimpleAudioVolume)
+                iface = s.SimpleAudioVolume
                 _SESSION_CACHE[name.lower()] = iface
                 iface.SetMasterVolume(volume, None)
-                return
+                found += 1
+        if found == 0:
+            sessions = AudioUtilities.GetAllSessions()
+            avail = sorted({s.Process.name() for s in sessions if s.Process})
+            print(f"[vol] no audio session for '{name}'. Active apps: {avail}")
+            return False
+        return True
     except Exception as e:
-        # invalidate cache on error and retry once
         _SESSION_CACHE.pop(name.lower(), None)
-        print(f"[WARN] set_app_volume: {e}")
+        print(f"[vol] error on '{name}': {e}")
+        return False
 
 
 # Cache ISimpleAudioVolume interfaces per process name so we don't enumerate
@@ -217,16 +224,34 @@ def _get_cached_volume(name: str):
     return _SESSION_CACHE.get(name.lower())
 
 
-def toggle_app_mute(name: str):
+def toggle_app_mute(name: str) -> bool:
     if not _HAS_PYCAW:
-        return
+        print("[mute] pycaw unavailable")
+        return False
+    found = 0
+    new_state = None
     try:
-        for s in AudioUtilities.GetAllSessions():
-            if s.Process and s.Process.name().lower() == name.lower():
-                v = s._ctl.QueryInterface(ISimpleAudioVolume)
-                v.SetMute(0 if v.GetMute() else 1, None)
+        sessions = AudioUtilities.GetAllSessions()
+        for s in sessions:
+            if not s.Process:
+                continue
+            pname = s.Process.name()
+            if pname.lower() == name.lower():
+                v = s.SimpleAudioVolume
+                cur = bool(v.GetMute())
+                want = 0 if cur else 1
+                v.SetMute(want, None)
+                new_state = bool(want)
+                found += 1
+        if found == 0:
+            avail = sorted({s.Process.name() for s in sessions if s.Process})
+            print(f"[mute] no audio session for '{name}'. Active apps with audio right now: {avail}")
+            return False
+        print(f"[mute] {name}: {'MUTED' if new_state else 'UNMUTED'} ({found} session(s))")
+        return True
     except Exception as e:
-        print(f"[WARN] toggle_app_mute: {e}")
+        print(f"[mute] error on '{name}': {e}")
+        return False
 
 
 def set_master_volume(volume: float):
