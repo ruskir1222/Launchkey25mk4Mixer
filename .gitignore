@@ -80,3 +80,6 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
+# Local secrets — never push to GitHub
+memory/github_pat.md
+
