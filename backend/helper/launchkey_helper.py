@@ -39,6 +39,7 @@ API_URL_DEFAULT = os.environ.get("LAUNCHKEY_API_URL", "http://localhost:8001")
 POLL_INTERVAL = 1.5
 HEARTBEAT_INTERVAL = 3.0
 SESSIONS_INTERVAL = 2.0
+DEBUG = False
 
 
 # --- Default Novation Launchkey MK3 MIDI map ------------------------------
@@ -270,7 +271,7 @@ class WinmmBackend(MidiBackend):
         self.MIDIINCAPSW = MIDIINCAPSW
 
         self.MidiInProc = ctypes.WINFUNCTYPE(
-            None, self.HMIDIIN, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
+            None, self.HMIDIIN, ctypes.c_uint, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t
         )
         self._cb_ref = None  # keep callback alive
         self._handle = None
@@ -324,13 +325,13 @@ class WinmmBackend(MidiBackend):
         self._on_msg = on_msg
 
         def proc(hmi, wMsg, dwInstance, dwParam1, dwParam2):
-            if wMsg == self.MIM_DATA:
-                m = self._decode(int(dwParam1) & 0xFFFFFFFF if dwParam1 is not None else 0)
-                if m is not None and self._on_msg:
-                    try:
+            try:
+                if wMsg == self.MIM_DATA:
+                    m = self._decode(int(dwParam1 or 0) & 0xFFFFFFFF)
+                    if m is not None and self._on_msg:
                         self._on_msg(m)
-                    except Exception as e:
-                        print(f"[winmm cb err] {e}")
+            except Exception as e:
+                print(f"[winmm cb err] {e}")
 
         self._cb_ref = self.MidiInProc(proc)
         h = self.HMIDIIN()
@@ -461,23 +462,35 @@ class HelperClient:
 
     def post(self, path, body):
         try:
-            return requests.post(f"{self.api}/api{path}", json=body, timeout=4)
+            r = requests.post(f"{self.api}/api{path}", json=body, timeout=4)
+            if DEBUG:
+                print(f"[NET] POST {path} -> {r.status_code}")
+            if r.status_code >= 400:
+                print(f"[NET] POST {path} HTTP {r.status_code}: {r.text[:200]}")
+            return r
         except Exception as e:
-            print(f"[NET] POST {path} {e}")
+            print(f"[NET] POST {path} FAILED: {e}")
 
     def get(self, path):
         try:
-            return requests.get(f"{self.api}/api{path}", timeout=4).json()
+            r = requests.get(f"{self.api}/api{path}", timeout=4)
+            if DEBUG:
+                print(f"[NET] GET {path} -> {r.status_code}")
+            return r.json()
         except Exception as e:
-            print(f"[NET] GET {path} {e}")
+            print(f"[NET] GET {path} FAILED: {e}")
             return None
 
     def heartbeat_loop(self):
+        first = True
         while not self.stop_evt.is_set():
-            self.post("/helper/heartbeat", {
+            r = self.post("/helper/heartbeat", {
                 "version": "1.1.0", "midi_port": self.midi_port_name,
                 "device_connected": self.device_connected,
             })
+            if first and r is not None and r.status_code < 400:
+                print(f"[OK] Dashboard reachable: {self.api}")
+                first = False
             self.stop_evt.wait(HEARTBEAT_INTERVAL)
 
     def sessions_loop(self):
@@ -502,6 +515,18 @@ class HelperClient:
 
     def _on_msg(self, msg: Msg):
         cid = control_id_from_msg(msg)
+        # Always print raw MIDI in a compact form — this is the most useful debug aid
+        if msg.type == "control_change":
+            raw = f"CC ch={msg.channel} #{msg.control}={msg.value}"
+        elif msg.type == "note_on":
+            raw = f"NoteOn ch={msg.channel} note={msg.note} vel={msg.velocity}"
+        elif msg.type == "note_off":
+            raw = f"NoteOff ch={msg.channel} note={msg.note}"
+        elif msg.type == "pitchwheel":
+            raw = f"Pitch ch={msg.channel} val={msg.pitch}"
+        else:
+            raw = msg.type
+        print(f"[MIDI] {raw}  -> {cid or '(no mapping for this control — add it to MIDI_MAP_OVERRIDES)'}")
         if not cid:
             return
         self._report(msg, cid)
@@ -569,7 +594,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API_URL_DEFAULT, help="Dashboard base URL")
     ap.add_argument("--list-ports", action="store_true", help="List MIDI input ports and exit")
+    ap.add_argument("--debug", action="store_true", help="Print every API call")
     args = ap.parse_args()
+    global DEBUG
+    DEBUG = args.debug
+    print(f"[Launchkey Mixer] API URL: {args.api}")
+    if "localhost" in args.api or "127.0.0.1" in args.api:
+        print("[WARN] API URL is localhost — pass --api https://YOUR-APP.preview.emergentagent.com")
     backend = pick_backend()
     if args.list_ports:
         print("\nMIDI input ports:")
