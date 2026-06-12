@@ -2,7 +2,7 @@ import { LK } from "@/constants/testIds";
 import { Activity, Radio, Settings2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export default function Header({ helperStatus, midiLearn, learnTarget, onToggleMidiLearn, onCancelLearnTarget, onOpenSetup }) {
+export default function Header({ helperStatus, midiLearn, learnTarget, onToggleMidiLearn, onCancelLearnTarget, onOpenSetup, onOpenLayoutWizard }) {
   const connected = helperStatus?.helper_connected;
   const port = helperStatus?.helper_info?.midi_port;
   const device = helperStatus?.helper_info?.device_connected;
@@ -49,6 +49,17 @@ export default function Header({ helperStatus, midiLearn, learnTarget, onToggleM
               </span>
             )}
           </div>
+
+          <Button
+            data-testid="map-layout-btn"
+            onClick={onOpenLayoutWizard}
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-sm border-[#262626] bg-surface hover:bg-[#1a1a1a] font-mono text-xs tracking-wider"
+            title="Walk through every control to map the physical device to the UI"
+          >
+            MAP LAYOUT
+          </Button>
 
           <Button
             data-testid={LK.midiLearnToggle}

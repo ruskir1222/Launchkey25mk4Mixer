@@ -10,6 +10,7 @@ import EventLog from "@/components/EventLog";
 import MappingDialog from "@/components/MappingDialog";
 import MappingsList from "@/components/MappingsList";
 import CollapsibleSection from "@/components/CollapsibleSection";
+import LayoutWizard from "@/components/LayoutWizard";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -20,9 +21,11 @@ export default function Dashboard() {
   const [helperStatus, setHelperStatus] = useState({ helper_connected: false });
   const [events, setEvents] = useState([]);
   const [midiLearn, setMidiLearn] = useState(false);
-  const [learnTarget, setLearnTarget] = useState(null); // UI control_id to bind the next physical event to
+  const [learnTarget, setLearnTarget] = useState(null);
+  const [layoutWizardOpen, setLayoutWizardOpen] = useState(false);
   const [flashControl, setFlashControl] = useState(null);
   const [editingControl, setEditingControl] = useState(null);
+  const [latestMidi, setLatestMidi] = useState(null);
 
   const refreshProfiles = useCallback(async () => {
     const ps = await api.listProfiles();
@@ -66,6 +69,7 @@ export default function Dashboard() {
           setEvents((prev) => [...prev, ...data.events].slice(-100));
           const latest = data.events[data.events.length - 1];
           setFlashControl({ id: latest.control_id, ts: Date.now() });
+          setLatestMidi(latest);
           // Targeted learn: physical event captured, bind to chosen UI control
           if (learnTarget) {
             const physicalId = latest.control_id;
@@ -112,10 +116,16 @@ export default function Dashboard() {
   }, [mappings]);
 
   const onControlClick = (controlId) => {
-    // If MIDI Learn is on and the clicked UI control isn't already mapped, set target.
     if (midiLearn) {
       setLearnTarget(controlId);
       toast(`Targeting ${controlId}`, { description: "Now press the matching control on your device." });
+      return;
+    }
+    // If a layout alias exists (ui_alias === controlId, action_type === noop),
+    // pre-open editing for the aliased physical id so user just configures the action.
+    const aliased = mappings.find(m => m.ui_alias === controlId && m.action_type === "noop");
+    if (aliased) {
+      setEditingControl(aliased.control_id);
       return;
     }
     setEditingControl(controlId);
@@ -145,6 +155,7 @@ export default function Dashboard() {
         onToggleMidiLearn={() => { setMidiLearn(v => !v); setLearnTarget(null); }}
         onCancelLearnTarget={() => setLearnTarget(null)}
         onOpenSetup={() => navigate("/setup")}
+        onOpenLayoutWizard={() => setLayoutWizardOpen(true)}
       />
 
       <main className="px-4 lg:px-8 py-6 max-w-[1600px] mx-auto">
@@ -211,6 +222,18 @@ export default function Dashboard() {
           onClose={() => setEditingControl(null)}
           onSave={(body) => { saveMapping(editingControl, body); setEditingControl(null); }}
           onDelete={() => { deleteMapping(editingControl); setEditingControl(null); }}
+        />
+      )}
+      {activeProfile && (
+        <LayoutWizard
+          open={layoutWizardOpen}
+          profileId={activeProfile.id}
+          onClose={async () => {
+            setLayoutWizardOpen(false);
+            const ms = await api.listMappings(activeProfile.id);
+            setMappings(ms);
+          }}
+          latestEvent={latestMidi}
         />
       )}
     </div>
