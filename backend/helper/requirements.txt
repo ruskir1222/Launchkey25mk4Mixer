@@ -1,5 +1,7 @@
 mido>=1.3.0
-python-rtmidi>=1.5.8
+# pick ONE of the next two — python-rtmidi is faster, pygame avoids C++ compile
+python-rtmidi>=1.5.8 ; platform_system!="never"
+pygame>=2.5 ; platform_system!="never"
 pycaw>=20240210
 comtypes>=1.4.0
 requests>=2.31.0

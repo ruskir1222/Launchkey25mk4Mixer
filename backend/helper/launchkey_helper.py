@@ -45,8 +45,28 @@ import requests
 try:
     import mido
 except ImportError:
-    print("Please run:  pip install mido python-rtmidi")
+    print("Please run:  pip install mido")
     sys.exit(1)
+
+# Try to pick a working MIDI backend. python-rtmidi is the default but needs
+# a C++ build on some setups. Fall back to pygame.midi (pure pre-built wheel).
+_BACKEND = None
+try:
+    import rtmidi  # noqa: F401
+    mido.set_backend("mido.backends.rtmidi")
+    _BACKEND = "rtmidi"
+except Exception:
+    try:
+        import pygame.midi  # noqa: F401
+        mido.set_backend("mido.backends.pygame")
+        _BACKEND = "pygame"
+    except Exception:
+        print("\n[FATAL] No MIDI backend available.")
+        print("Install ONE of these (pre-built wheels, no C++ compile needed):")
+        print("   pip install --only-binary=:all: python-rtmidi")
+        print("   pip install pygame    # fallback backend")
+        sys.exit(1)
+print(f"[MIDI] Using backend: {_BACKEND}")
 
 # Audio (Windows only)
 try:
