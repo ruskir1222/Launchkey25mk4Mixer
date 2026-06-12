@@ -958,6 +958,9 @@ class HelperClient:
         # MIDI output for RGB LED feedback (best-effort)
         self._midi_out = MidiOut()
         self._led_opened_once = False
+        # Learned (channel, note) per control_id from incoming events, so LEDs
+        # can be targeted at whatever notes the device is actually using right now.
+        self._physical_pads: Dict[str, tuple] = {}
 
     def post(self, path, body):
         try:
@@ -1080,7 +1083,15 @@ class HelperClient:
             if prev_state.get(idx) == color:
                 continue
             prev_state[idx] = color
-            self._midi_out.light_pad(pad_to_note(idx), color)
+            # Default drum-layout note for this pad
+            default_note = pad_to_note(idx)
+            self._midi_out.light_pad(default_note, color)
+            # Also light any "learned" physical note we've seen for this UI pad
+            learned = self._physical_pads.get(f"pad-{idx}")
+            if learned:
+                ch, note = learned
+                if note != default_note:
+                    self._midi_out.send_short(0x90 | (ch & 0x0F), note & 0x7F, color & 0x7F)
 
     def _report(self, msg: Msg, cid: str):
         """Throttled async report — never blocks the MIDI callback."""
@@ -1115,6 +1126,11 @@ class HelperClient:
         cid = control_id_from_msg(msg)
         if not cid:
             return
+        # Remember the (channel, note) any pad-ish event came on, so LEDs
+        # can light THAT specific note even if the device is in Session/Scale
+        # mode and sending non-standard notes.
+        if msg.type in ("note_on", "note_off") and msg.note is not None:
+            self._physical_pads[cid] = (msg.channel, msg.note)
         # 1) Dispatch the Windows action FIRST (instant, local)
         had_action = self.dispatcher.handle(cid, msg)
         # 2) Then queue an async report for the dashboard (never blocks)
