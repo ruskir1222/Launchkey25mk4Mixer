@@ -43,12 +43,14 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
   const [customTarget, setCustomTarget] = useState(false);
   const [label, setLabel] = useState(mapping?.label || "");
   const [invert, setInvert] = useState(!!mapping?.params?.invert);
+  const [uiAlias, setUiAlias] = useState(mapping?.ui_alias || "");
 
   useEffect(() => {
     setActionType(mapping?.action_type || "set_volume");
     setTarget(mapping?.target_app || "");
     setLabel(mapping?.label || "");
     setInvert(!!mapping?.params?.invert);
+    setUiAlias(mapping?.ui_alias || "");
     setCustomTarget(false);
   }, [mapping, controlId]);
 
@@ -65,6 +67,7 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
       target_app: needsTarget ? target : null,
       params: action?.kind === "continuous" ? { invert } : {},
       label: label || null,
+      ui_alias: uiAlias || null,
     });
   };
 
@@ -158,6 +161,22 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
               className="bg-[#0e0e0e] border-[#262626] rounded-sm h-9 text-sm font-mono"
             />
           </div>
+
+          {uiAlias && (
+            <div className="p-3 bg-[#0e0e0e] border border-[#1f1f1f] rounded-sm flex items-center justify-between">
+              <div>
+                <div className="text-[10px] font-mono text-neutral-500 uppercase tracking-wider">Displays at UI position</div>
+                <div className="text-sm font-mono text-brand mt-0.5">{uiAlias}</div>
+              </div>
+              <Button
+                onClick={() => setUiAlias("")}
+                variant="ghost" size="sm"
+                className="h-7 rounded-sm text-xs font-mono hover:bg-[#1a1a1a] hover:text-danger"
+              >
+                Unbind UI
+              </Button>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="flex sm:justify-between gap-2">

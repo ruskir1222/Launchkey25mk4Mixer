@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [helperStatus, setHelperStatus] = useState({ helper_connected: false });
   const [events, setEvents] = useState([]);
   const [midiLearn, setMidiLearn] = useState(false);
+  const [learnTarget, setLearnTarget] = useState(null); // UI control_id to bind the next physical event to
   const [flashControl, setFlashControl] = useState(null);
   const [editingControl, setEditingControl] = useState(null);
 
@@ -65,7 +66,29 @@ export default function Dashboard() {
           setEvents((prev) => [...prev, ...data.events].slice(-100));
           const latest = data.events[data.events.length - 1];
           setFlashControl({ id: latest.control_id, ts: Date.now() });
-          if (midiLearn) {
+          // Targeted learn: physical event captured, bind to chosen UI control
+          if (learnTarget) {
+            const physicalId = latest.control_id;
+            // Save mapping using physical id as the dispatch key, ui_alias = target
+            (async () => {
+              try {
+                const m = await api.upsertMapping(activeProfile.id, physicalId, {
+                  action_type: "set_volume",
+                  target_app: null,
+                  params: {},
+                  label: null,
+                  ui_alias: learnTarget,
+                });
+                setMappings((prev) => [...prev.filter(x => x.control_id !== physicalId), m]);
+                toast.success(`Bound ${physicalId} → ${learnTarget}`, { description: "Finish configuring the action." });
+                setEditingControl(physicalId);
+              } catch (e) {
+                toast.error("Bind failed", { description: String(e) });
+              }
+              setLearnTarget(null);
+              setMidiLearn(false);
+            })();
+          } else if (midiLearn) {
             setEditingControl(latest.control_id);
             setMidiLearn(false);
             toast("MIDI Learn captured", { description: latest.control_id });
@@ -76,15 +99,27 @@ export default function Dashboard() {
     tick();
     const id = setInterval(tick, 250);
     return () => { stop = true; clearInterval(id); };
-  }, [midiLearn]);
+  }, [midiLearn, learnTarget, activeProfile]);
 
   const mappingByControl = useMemo(() => {
     const m = {};
-    mappings.forEach(x => { m[x.control_id] = x; });
+    mappings.forEach(x => {
+      // Mapping is "owned" by its control_id, but display also at ui_alias if set.
+      m[x.control_id] = x;
+      if (x.ui_alias && !m[x.ui_alias]) m[x.ui_alias] = x;
+    });
     return m;
   }, [mappings]);
 
-  const onControlClick = (controlId) => setEditingControl(controlId);
+  const onControlClick = (controlId) => {
+    // If MIDI Learn is on and the clicked UI control isn't already mapped, set target.
+    if (midiLearn) {
+      setLearnTarget(controlId);
+      toast(`Targeting ${controlId}`, { description: "Now press the matching control on your device." });
+      return;
+    }
+    setEditingControl(controlId);
+  };
 
   const saveMapping = async (controlId, body) => {
     const m = await api.upsertMapping(activeProfile.id, controlId, body);
@@ -106,7 +141,9 @@ export default function Dashboard() {
       <Header
         helperStatus={helperStatus}
         midiLearn={midiLearn}
-        onToggleMidiLearn={() => setMidiLearn(v => !v)}
+        learnTarget={learnTarget}
+        onToggleMidiLearn={() => { setMidiLearn(v => !v); setLearnTarget(null); }}
+        onCancelLearnTarget={() => setLearnTarget(null)}
         onOpenSetup={() => navigate("/setup")}
       />
 

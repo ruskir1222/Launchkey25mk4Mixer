@@ -175,6 +175,7 @@ async def upsert_mapping(profile_id: str, control_id: str, body: MappingUpsert):
         target_app=body.target_app,
         params=body.params,
         label=body.label,
+        ui_alias=body.ui_alias,
     )
     await db.mappings.update_one(
         {"profile_id": profile_id, "control_id": control_id},

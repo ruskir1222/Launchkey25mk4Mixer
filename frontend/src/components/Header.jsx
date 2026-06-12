@@ -1,8 +1,8 @@
 import { LK } from "@/constants/testIds";
-import { Activity, Radio, Settings2 } from "lucide-react";
+import { Activity, Radio, Settings2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export default function Header({ helperStatus, midiLearn, onToggleMidiLearn, onOpenSetup }) {
+export default function Header({ helperStatus, midiLearn, learnTarget, onToggleMidiLearn, onCancelLearnTarget, onOpenSetup }) {
   const connected = helperStatus?.helper_connected;
   const port = helperStatus?.helper_info?.midi_port;
   const device = helperStatus?.helper_info?.device_connected;
@@ -26,6 +26,18 @@ export default function Header({ helperStatus, midiLearn, onToggleMidiLearn, onO
         </div>
 
         <div className="flex items-center gap-3">
+          {learnTarget && (
+            <div
+              data-testid="learn-target-badge"
+              className="flex items-center gap-2 px-2.5 py-1 rounded-sm border border-brand bg-brand/10 text-[10px] font-mono tracking-wider"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+              <span className="text-brand">TARGETING {learnTarget.toUpperCase()}</span>
+              <button onClick={onCancelLearnTarget} className="text-neutral-400 hover:text-white">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
           <div data-testid={LK.helperStatus} className="flex items-center gap-2 text-xs font-mono">
             <span className={`w-2 h-2 rounded-full ${connected ? 'bg-success animate-pulse' : 'bg-danger'}`} />
             <span className="text-neutral-400">
@@ -48,7 +60,7 @@ export default function Header({ helperStatus, midiLearn, onToggleMidiLearn, onO
             }`}
           >
             <Activity className="w-3.5 h-3.5 mr-1.5" />
-            {midiLearn ? 'LEARNING…' : 'MIDI LEARN'}
+            {midiLearn ? (learnTarget ? 'WAITING…' : 'CLICK UI THEN PRESS') : 'MIDI LEARN'}
           </Button>
 
           <Button
