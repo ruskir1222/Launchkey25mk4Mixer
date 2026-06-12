@@ -26,6 +26,14 @@ function controlLabel(id) {
   if (id.startsWith("pad-")) return `Pad ${id.split('-')[1]}`;
   if (id.startsWith("key-")) return `Key ${id.split('-')[1]}`;
   if (id.startsWith("transport-")) return `Transport · ${id.split('-')[1]}`;
+  if (id.startsWith("cc-ch")) {
+    const m = id.match(/cc-ch(\d+)-(\d+)/);
+    return m ? `Custom CC #${m[2]} (ch ${m[1]})` : id;
+  }
+  if (id.startsWith("note-ch")) {
+    const m = id.match(/note-ch(\d+)-(\d+)/);
+    return m ? `Custom Note ${m[2]} (ch ${m[1]})` : id;
+  }
   return id.replace(/-/g, ' ');
 }
 

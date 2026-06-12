@@ -87,19 +87,20 @@ MIDI_MAP_OVERRIDES: Dict[str, Dict] = {"cc": {}, "note": {}}
 
 def control_id_from_msg(msg: "Msg") -> Optional[str]:
     if msg.type == "control_change":
-        return MIDI_MAP_OVERRIDES["cc"].get(msg.control) or CC_MAP.get(msg.control)
+        cid = MIDI_MAP_OVERRIDES["cc"].get(msg.control) or CC_MAP.get(msg.control)
+        # Synthetic id for unmapped CCs — lets the dashboard MIDI-Learn ANY knob/slider.
+        return cid or f"cc-ch{msg.channel}-{msg.control}"
     if msg.type in ("note_on", "note_off"):
-        # explicit override
         ov = MIDI_MAP_OVERRIDES["note"].get(msg.note)
         if ov:
             return ov
-        # pad? (drum channels)
         if msg.channel in DRUM_CHANNELS and msg.note in PAD_NOTES:
             return PAD_NOTES[msg.note]
-        # else treat as a piano key
         idx = msg.note - KEY_BASE_NOTE + 1
-        if 1 <= idx <= 88:
+        if 1 <= idx <= 88 and msg.channel not in DRUM_CHANNELS:
             return f"key-{idx}"
+        # synthetic fallback
+        return f"note-ch{msg.channel}-{msg.note}"
     if msg.type == "pitchwheel":
         return "pitch-wheel"
     return None

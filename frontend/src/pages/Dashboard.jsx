@@ -8,6 +8,7 @@ import ProfilesPanel from "@/components/ProfilesPanel";
 import HardwareVisualizer from "@/components/HardwareVisualizer";
 import EventLog from "@/components/EventLog";
 import MappingDialog from "@/components/MappingDialog";
+import MappingsList from "@/components/MappingsList";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -117,6 +118,11 @@ export default function Dashboard() {
               onActivate={async (id) => { await api.activateProfile(id); await refreshProfiles(); }}
               onCreate={async (name) => { await api.createProfile(name); await refreshProfiles(); toast.success("Profile created"); }}
               onDelete={async (id) => { await api.deleteProfile(id); await refreshProfiles(); toast("Profile deleted"); }}
+            />
+            <MappingsList
+              mappings={mappings}
+              onEdit={(id) => setEditingControl(id)}
+              onDelete={deleteMapping}
             />
             <SessionsPanel sessions={sessions} helperConnected={helperStatus.helper_connected} />
           </aside>
