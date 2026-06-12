@@ -72,7 +72,11 @@ LOG_PATH = data_dir() / "launchkey.log"
 
 # Write logs to BOTH stdout (visible in console build) AND a file in %APPDATA%
 # so users can debug even when the console is hidden (system-tray build).
-_log_handlers = [logging.StreamHandler()]
+# In windowed PyInstaller mode sys.stderr/sys.stdout can be None, so we skip
+# StreamHandler entirely when that's the case (would otherwise crash logging).
+_log_handlers = []
+if sys.stderr is not None:
+    _log_handlers.append(logging.StreamHandler())
 try:
     _log_handlers.append(logging.FileHandler(LOG_PATH, encoding="utf-8"))
 except Exception:
@@ -80,7 +84,7 @@ except Exception:
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=_log_handlers,
+    handlers=_log_handlers or None,
 )
 log = logging.getLogger("launchkey-offline")
 
@@ -553,46 +557,36 @@ def _open_browser(url: str):
 
 
 def run_with_tray(url: str):
-    """Run uvicorn in a thread and a pystray icon on the main thread."""
-    import pystray
-    from pystray import MenuItem as Item, Menu
+    """Run a pystray icon in a background thread (so uvicorn can own the main
+    thread for clean asyncio + signal handling on Windows)."""
+    try:
+        import pystray
+        from pystray import MenuItem as Item, Menu
+    except Exception as e:
+        log.warning("pystray unavailable (%s) — no tray icon will be shown.", e)
+        return None
 
     icon_image = _build_tray_icon_image()
 
-    def serve():
-        try:
-            # Ensure this thread has its own event loop (Windows quirk).
-            import asyncio
-            try:
-                asyncio.set_event_loop(asyncio.new_event_loop())
-            except Exception:
-                pass
-            from uvicorn import Config, Server
-            config = Config(app=app, host="127.0.0.1", port=PORT, log_level="info")
-            server = Server(config)
-            log.info("Uvicorn starting on %s:%s", config.host, config.port)
-            server.run()
-        except Exception as e:
-            log.exception("Uvicorn server thread crashed: %s", e)
+    icon = pystray.Icon("launchkey-mixer", icon_image, "Launchkey Mixer")
 
-    server_thread = threading.Thread(target=serve, daemon=True, name="uvicorn-server")
-    server_thread.start()
-
-    def on_open(icon, item):
+    def on_open(icon_, item):
         _open_browser(url)
 
-    def on_quit(icon, item):
+    def on_quit(icon_, item):
         log.info("Tray quit requested — shutting down.")
-        icon.stop()
-        os._exit(0)  # daemon threads will be killed
+        icon_.stop()
+        os._exit(0)
 
-    menu = Menu(
+    icon.menu = Menu(
         Item("Open Dashboard", on_open, default=True),
         Item("Quit", on_quit),
     )
-    icon = pystray.Icon("launchkey-mixer", icon_image, "Launchkey Mixer", menu)
-    log.info("Running in system tray. Right-click the tray icon for options.")
-    icon.run()  # blocks until on_quit
+
+    t = threading.Thread(target=icon.run, daemon=True, name="systray")
+    t.start()
+    log.info("System-tray icon spawned in background.")
+    return icon
 
 
 # -----------------------------------------------------------------------------
@@ -619,16 +613,25 @@ def main():
     # Spawn the helper (MIDI + Windows audio). Safe no-op on non-Windows.
     start_helper_thread()
 
-    # Prefer tray mode (windowed); fall back to plain console if pystray missing.
-    try:
-        import pystray  # noqa: F401
-        import PIL  # noqa: F401
-        run_with_tray(url)
-        return
-    except Exception as e:
-        log.warning("Tray unavailable (%s) — running in console mode.", e)
+    # Spawn tray icon in a background thread (doesn't block uvicorn).
+    run_with_tray(url)
 
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="info")
+    # Run uvicorn on the main thread — keeps signal handling + asyncio happy.
+    try:
+        log.info("Uvicorn starting on 127.0.0.1:%s", PORT)
+        # Pass log_config=None so uvicorn doesn't install its own handlers
+        # (which would crash in windowed PyInstaller mode where sys.stderr=None).
+        uvicorn.run(
+            app,
+            host="127.0.0.1",
+            port=PORT,
+            log_level="warning",
+            log_config=None,
+            access_log=False,
+        )
+    except Exception as e:
+        log.exception("Uvicorn crashed: %s", e)
+        raise
 
 
 if __name__ == "__main__":
