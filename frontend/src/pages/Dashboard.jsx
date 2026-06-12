@@ -9,6 +9,7 @@ import HardwareVisualizer from "@/components/HardwareVisualizer";
 import EventLog from "@/components/EventLog";
 import MappingDialog from "@/components/MappingDialog";
 import MappingsList from "@/components/MappingsList";
+import CollapsibleSection from "@/components/CollapsibleSection";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -112,19 +113,34 @@ export default function Dashboard() {
       <main className="px-4 lg:px-8 py-6 max-w-[1600px] mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <aside className="lg:col-span-3 space-y-4">
-            <ProfilesPanel
-              profiles={profiles}
-              activeProfile={activeProfile}
-              onActivate={async (id) => { await api.activateProfile(id); await refreshProfiles(); }}
-              onCreate={async (name) => { await api.createProfile(name); await refreshProfiles(); toast.success("Profile created"); }}
-              onDelete={async (id) => { await api.deleteProfile(id); await refreshProfiles(); toast("Profile deleted"); }}
-            />
-            <MappingsList
-              mappings={mappings}
-              onEdit={(id) => setEditingControl(id)}
-              onDelete={deleteMapping}
-            />
-            <SessionsPanel sessions={sessions} helperConnected={helperStatus.helper_connected} />
+            <CollapsibleSection id="profiles" title="macro profiles" defaultOpen>
+              <ProfilesPanel
+                profiles={profiles}
+                activeProfile={activeProfile}
+                onActivate={async (id) => { await api.activateProfile(id); await refreshProfiles(); }}
+                onCreate={async (name) => { await api.createProfile(name); await refreshProfiles(); toast.success("Profile created"); }}
+                onDelete={async (id) => { await api.deleteProfile(id); await refreshProfiles(); toast("Profile deleted"); }}
+              />
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="mappings"
+              title="active mappings"
+              defaultOpen
+              headerExtra={
+                <span className="text-[10px] font-mono text-neutral-600">{mappings.length} bound</span>
+              }
+            >
+              <MappingsList
+                mappings={mappings}
+                onEdit={(id) => setEditingControl(id)}
+                onDelete={deleteMapping}
+              />
+            </CollapsibleSection>
+
+            <CollapsibleSection id="sessions" title="live audio sessions" defaultOpen>
+              <SessionsPanel sessions={sessions} helperConnected={helperStatus.helper_connected} />
+            </CollapsibleSection>
           </aside>
 
           <section className="lg:col-span-9 space-y-4">
@@ -134,7 +150,16 @@ export default function Dashboard() {
               midiLearn={midiLearn}
               onControlClick={onControlClick}
             />
-            <EventLog events={events} />
+            <CollapsibleSection
+              id="events"
+              title="event stream"
+              defaultOpen={false}
+              headerExtra={
+                <span className="text-[10px] font-mono text-neutral-600">{events.length} events</span>
+              }
+            >
+              <EventLog events={events} />
+            </CollapsibleSection>
           </section>
         </div>
       </main>

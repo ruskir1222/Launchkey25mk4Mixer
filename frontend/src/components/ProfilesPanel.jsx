@@ -16,9 +16,8 @@ export default function ProfilesPanel({ profiles, activeProfile, onActivate, onC
   };
 
   return (
-    <div className="surface p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="overline">macro profiles</div>
+    <div>
+      <div className="flex items-center justify-end mb-2 -mt-1">
         <Button
           data-testid={LK.newProfileBtn}
           onClick={() => setCreating(v => !v)}
