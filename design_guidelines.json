@@ -1,0 +1,83 @@
+{
+  "app_concept": {
+    "domain": "Audio / Hardware Control Dashboard",
+    "theme": "Dark",
+    "archetype": "Archetype 2 (Performance Pro) / Archetype 4 (Swiss & High-Contrast) - 'Studio Control Center'",
+    "vibe": "Tactile, precise, hardware-inspired, low-latency feel, DAW aesthetic. It should feel like a premium piece of software configuring real hardware."
+  },
+  "typography": {
+    "primary_heading": "IBM Plex Sans",
+    "secondary_body": "Inter",
+    "monospace_data": "JetBrains Mono",
+    "rules": [
+      "Do not use Inter for main headings. Use IBM Plex Sans (or a similar strong sans) for high legibility.",
+      "Use JetBrains Mono for all numeric values, port names, app names, volume percentages, and connection statuses to give it a technical, precision feel.",
+      "Use uppercase wide-tracking (tracking-[0.2em]) for overlines, panel headers, and section labels (e.g., 'MIDI IN', 'LIVE SESSIONS', 'MASTER VOLUME').",
+      "Keep font sizes compact for dense data readability (text-xs to text-sm)."
+    ]
+  },
+  "color_palette": {
+    "base_background": "#050505",
+    "surface_card": "#121212",
+    "surface_card_hover": "#1A1A1A",
+    "border_color": "#262626",
+    "primary_accent": "#FF5500",
+    "success_accent": "#10B981",
+    "warning_accent": "#F59E0B",
+    "danger_accent": "#EF4444",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A3A3A3",
+    "text_muted": "#525252"
+  },
+  "layout_and_spacing": {
+    "mode": "Mode B: The 'Control Room' Grid",
+    "grid_configuration": "Base grid grid-cols-1 lg:grid-cols-12 gap-4 or gap-6. Dense and structured.",
+    "spacing_scale": "Use tight padding inside cards (p-4 or p-6) but ensure distinct visual separation between modules.",
+    "panels": {
+      "sidebar": "Live Audio Sessions / Profiles (col-span-12 lg:col-span-3 or 4)",
+      "main_stage": "Hardware Visualizer Map (col-span-12 lg:col-span-9 or 8) - Interactive Launchkey 37 Representation",
+      "bottom_console": "Event Log / Terminal (col-span-12)"
+    }
+  },
+  "component_styles": {
+    "cards": "Flat solid surfaces. NO GLASSMORPHISM for the main app to prevent a 'fragile' feel. Background #121212, 1px solid border #262626. Max border-radius: 4px (rounded-sm or rounded-md).",
+    "buttons": "Tactile, sharp edges. Primary actions use #FF5500 with a subtle inner glow. Default buttons use #1A1A1A with hover text-white and border shift.",
+    "drum_pads": "Aspect-square boxes in the UI. Default: bg-[#1A1A1A] border #262626. Active/Assigned: Border #FF5500 or glowing colors with inner drop shadow.",
+    "sliders_and_knobs": "Use standard Shadcn sliders but customized. Track color #262626, thumb color #A3A3A3, hover thumb #FF5500. Add numeric outputs next to them."
+  },
+  "image_urls": [
+    {
+      "category": "background_texture",
+      "url": "https://images.unsplash.com/photo-1720962158852-e7039d31c3c1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHwzfHxzeW50aGVzaXplciUyMGhhcmR3YXJlJTIwZGFya3xlbnwwfHx8fDE3ODEyMzk5MTN8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Subtle abstract hardware texture. Use with high opacity overlay (bg-black/90 or 95) to break up the flat black background."
+    },
+    {
+      "category": "hero_reference",
+      "url": "https://images.unsplash.com/photo-1655931546504-bd87b13d65c3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NjZ8MHwxfHNlYXJjaHwxfHxzeW50aGVzaXplciUyMGhhcmR3YXJlJTIwZGFya3xlbnwwfHx8fDE3ODEyMzk5MTN8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Inspirational visual for the 'Disconnected' or 'Connect Device' welcome state."
+    }
+  ],
+  "motion_and_interactions": {
+    "midi_learn": "When MIDI learn is active, pulse the background or border of the target UI element or the entire header (animate-pulse with #FF5500).",
+    "hover_states": "All interactive elements must shift slightly in brightness instantly (e.g., bg-[#121212] to bg-[#1A1A1A]). Avoid overly sluggish animations to preserve the 'pro hardware' feel.",
+    "event_log": "New terminal lines should slide up and fade in smoothly to represent live MIDI stream data."
+  },
+  "icons_and_libraries": {
+    "icons": "lucide-react (default) or @phosphor-icons/react. Recommend Phosphor Icons for a denser, more technical hardware dashboard look.",
+    "packages_to_install": [
+      "@phosphor-icons/react",
+      "framer-motion"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Install the required font families (IBM Plex Sans, JetBrains Mono, Inter) from Google Fonts.",
+    "Ensure all data displays (volumes, port numbers, app names) use the JetBrains Mono font.",
+    "The header must NOT be transparent; use solid #050505 or #121212 with a bottom border. Include connection status dot (green/red) here.",
+    "Every interactive element, input, and button MUST have a data-testid attribute in kebab-case based on its role.",
+    "Do not build HTML datepickers/selects; use Shadcn components but heavily override their styles to match the dark hardware theme (remove overly rounded corners, apply dark gray borders).",
+    "Build a custom visual representation of the Launchkey 37 using a CSS grid for the pads (2x8), knobs (8), and transport controls.",
+    "Setup Tailwind config with the custom colors mentioned above (base, surface, border, accents).",
+    "The layout should follow the 'Control Room' grid—use h-full and stretch children to make columns match heights. Ensure no jagged bottoms.",
+    "For volume meters in the 'Live Sessions' panel, use horizontal progress bars with an accent color."
+  ]
+}
