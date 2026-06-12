@@ -55,6 +55,12 @@ Two halves working together:
 
 ## 🚀 Quick Start
 
+> **Two deployment modes:**
+> - **Cloud + Helper** (default) — Dashboard runs in the cloud, helper runs on your Windows PC. Best for iterating across machines.
+> - **Offline / Standalone** — Single `.exe` runs everything locally. No cloud, no MongoDB. See [`offline/README.md`](offline/README.md).
+>
+> Both modes are kept in the repo. Pick whichever fits your workflow.
+
 ### 1. Deploy the Dashboard (Cloud)
 
 The dashboard is a standard React + FastAPI + MongoDB app. Set these env vars:
