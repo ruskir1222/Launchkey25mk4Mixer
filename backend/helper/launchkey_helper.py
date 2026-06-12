@@ -1013,35 +1013,16 @@ class HelperClient:
             self.stop_evt.wait(SESSIONS_INTERVAL)
 
     def led_init_loop(self):
-        """Dedicated thread: aggressively (re)opens MIDI out for LED feedback
-        and keeps the device in Programmer Mode."""
-        import time as _t
-        attempts = 0
-        _t.sleep(1.5)
-        while not self.stop_evt.is_set():
-            if not self._midi_out.opened:
-                print(f"[LED] init attempt #{attempts + 1}…")
-                ok = self._midi_out.open("launchkey")
-                if ok:
-                    self._midi_out.enter_daw_mode()
-                    print("[LED] Programmer Mode armed. LEDs ready.")
-                else:
-                    if attempts == 0:
-                        print("[LED] Could not open MIDI output for LED feedback.")
-                attempts += 1
-            else:
-                # Keep Programmer Mode alive (some MK4 firmwares time out of it)
-                self._midi_out.enter_daw_mode()
-            self.stop_evt.wait(5)
+        """LED feedback disabled — MK4 Mini doesn't expose the protocol publicly.
+        Picker colors are still saved per-mapping (visible in the dashboard) and
+        will activate automatically if/when the device protocol is wired up."""
+        return
 
     def state_loop(self):
-        prev_pad_state = {}
         while not self.stop_evt.is_set():
             data = self.get("/helper/state")
             if data and "mappings" in data:
                 self.dispatcher.update_mappings(data["mappings"])
-                if self._midi_out.opened:
-                    self._refresh_pad_leds(data["mappings"], prev_pad_state)
             self.stop_evt.wait(POLL_INTERVAL)
 
     def _refresh_pad_leds(self, mappings, prev_state):
@@ -1166,35 +1147,7 @@ class HelperClient:
             self._physical_pads[cid] = (msg.channel, msg.note)
         # 1) Dispatch the Windows action FIRST (instant, local)
         had_action = self.dispatcher.handle(cid, msg)
-        # 1.5) Echo LED back to the SAME note/channel that just fired, if mapped
-        if had_action and msg.type == "note_on" and (msg.velocity or 0) > 0 and msg.note is not None:
-            m = self.dispatcher.mappings.get(cid)
-            if m and self._midi_out.opened:
-                color = self._color_for_mapping(m)
-                n = msg.note & 0x7F
-                ch = msg.channel & 0x0F
-                # 1. Note On to the source channel/note
-                self._midi_out.send_short(0x90 | ch, n, color & 0x7F)
-                # 2. SysEx static-color via every known Launchkey product byte and pad encoding.
-                #    Format: F0 00 20 29 02 <product> 03 00 <pad_addr> <color> F7
-                #    Pad address is tried as: raw note, 0x60 + lower-nibble, drum note (36 + n%16).
-                addresses = {n, 0x60 + (n & 0x0F), 0x40 + (n & 0x0F), 36 + (n & 0x0F)}
-                # MK4 standard drum-note → pad-index mapping
-                if 36 <= n <= 43:   # bottom row → 0x60..0x67
-                    addresses.add(0x60 + (n - 36))
-                if 44 <= n <= 51:   # top row → 0x68..0x6F
-                    addresses.add(0x68 + (n - 44))
-                # MK4 Mini native (where n IS already the pad index)
-                if 96 <= n <= 111:
-                    addresses.add(n)
-                    addresses.add(n - 96 + 0x60)   # normalize
-                for product in (0x0E, 0x0F, 0x13, 0x14, 0x11, 0x12):
-                    for addr in addresses:
-                        self._midi_out.send_sysex(bytes([
-                            0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x03, 0x00,
-                            addr & 0x7F, color & 0x7F, 0xF7
-                        ]))
-                print(f"[LED] echo -> ch{ch} note={n} color={color} (+SysEx variants)")
+        # 1.5) LED echo disabled (MK4 Mini doesn't accept host LED override).
         # 2) Then queue an async report for the dashboard (never blocks)
         self._report(msg, cid)
         # 3) Print
@@ -1227,7 +1180,11 @@ class HelperClient:
             raw = f"Pitch ch={msg.channel} val={msg.pitch}"
         else:
             raw = msg.type
-        suffix = "" if had_action else "   (not bound)"
+        suffix = ""
+        if msg.type == "note_off" or (msg.type == "note_on" and (msg.velocity or 0) == 0):
+            pass  # release of a mapped pad — silent
+        elif not had_action:
+            suffix = "   (not bound)"
         print(f"[MIDI] {raw}  -> {cid}{suffix}")
 
     def _find_launchkey_ports(self) -> List[str]:
