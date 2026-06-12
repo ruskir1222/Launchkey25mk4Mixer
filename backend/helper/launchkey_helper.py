@@ -340,6 +340,8 @@ class WinmmBackend(MidiBackend):
         return None
 
     def open(self, port_name: str, on_msg):
+        # Reset stop flag in case the backend was used before
+        self._stop.clear()
         # find device index by name
         device_idx = None
         for i, n in enumerate(self.list_inputs()):
@@ -347,7 +349,7 @@ class WinmmBackend(MidiBackend):
                 device_idx = i
                 break
         if device_idx is None:
-            raise RuntimeError(f"winmm: device '{port_name}' not found")
+            raise RuntimeError(f"winmm: device '{port_name}' not found in {self.list_inputs()}")
 
         self._on_msg = on_msg
 
@@ -357,27 +359,48 @@ class WinmmBackend(MidiBackend):
                     m = self._decode(int(dwParam1 or 0) & 0xFFFFFFFF)
                     if m is not None and self._on_msg:
                         self._on_msg(m)
+                elif wMsg == 0x3C1:   # MIM_OPEN
+                    print("[winmm] MIM_OPEN (device acknowledged open)")
+                elif wMsg == 0x3C2:   # MIM_CLOSE — informational only, do NOT stop
+                    print("[winmm] MIM_CLOSE (informational — ignored)")
+                elif wMsg == 0x3C5:   # MIM_ERROR
+                    print(f"[winmm] MIM_ERROR raw={dwParam1:#x}")
             except Exception as e:
                 print(f"[winmm cb err] {e}")
 
         self._cb_ref = self.MidiInProc(proc)
         h = self.HMIDIIN()
-        self._err(
-            self.winmm.midiInOpen(
-                ctypes.byref(h), device_idx, self._cb_ref, None, self.CALLBACK_FUNCTION
-            ),
-            "midiInOpen",
+        rc = self.winmm.midiInOpen(
+            ctypes.byref(h), device_idx, self._cb_ref, None, self.CALLBACK_FUNCTION
         )
+        if rc != self.MMSYSERR_NOERROR:
+            buf = ctypes.create_unicode_buffer(256)
+            self.winmm.midiInGetErrorTextW(rc, buf, 256)
+            raise RuntimeError(
+                f"midiInOpen failed (code {rc}: {buf.value}). "
+                "The Launchkey is likely held by another app (Novation Components, DAW, browser MIDI tab). "
+                "Close it and try again."
+            )
         self._handle = h
-        self._err(self.winmm.midiInStart(h), "midiInStart")
+        rc = self.winmm.midiInStart(h)
+        if rc != self.MMSYSERR_NOERROR:
+            self.winmm.midiInClose(h)
+            buf = ctypes.create_unicode_buffer(256)
+            self.winmm.midiInGetErrorTextW(rc, buf, 256)
+            raise RuntimeError(f"midiInStart failed: {buf.value}")
 
         # Block until stop is set
+        import time as _t
+        opened_at = _t.time()
         try:
             while not self._stop.wait(0.25):
                 pass
+            print(f"[winmm] open() returning normally after {_t.time()-opened_at:.1f}s — _stop was set")
         finally:
-            self.winmm.midiInStop(h)
-            self.winmm.midiInClose(h)
+            try: self.winmm.midiInStop(h)
+            except Exception: pass
+            try: self.winmm.midiInClose(h)
+            except Exception: pass
             self._handle = None
 
     def stop(self):
@@ -577,24 +600,42 @@ class HelperClient:
         return None
 
     def midi_loop(self):
+        last_port = None
+        connect_count = 0
         while not self.stop_evt.is_set():
             port = self._find_launchkey()
             if not port:
                 if self.device_connected:
-                    print("[MIDI] Launchkey disconnected.")
+                    print("[MIDI] Launchkey disappeared from device list.")
                 self.device_connected = False
                 self.midi_port_name = None
-                print("[MIDI] Waiting for Launchkey to be plugged in...")
+                # On first miss, dump all available ports so user can see what's there
+                if connect_count == 0:
+                    try:
+                        all_ports = self.backend.list_inputs()
+                        print(f"[MIDI] No Launchkey found. Available MIDI inputs: {all_ports or '(none)'}")
+                    except Exception as e:
+                        print(f"[MIDI] Could not list ports: {e}")
                 self.stop_evt.wait(3)
                 continue
             self.midi_port_name = port
             self.device_connected = True
-            print(f"[MIDI] Opening: {port}")
+            connect_count += 1
+            if port != last_port:
+                print(f"[MIDI] Opening: {port}")
+                last_port = port
+            else:
+                print(f"[MIDI] Reopening ({connect_count}): {port}")
             try:
                 self.backend.open(port, self._on_msg)
+                # If open() returned cleanly without stop being set, that means the
+                # device went away or another app took it.
+                if not self.stop_evt.is_set():
+                    print("[MIDI] Port closed unexpectedly (device unplugged or claimed by another app).")
             except Exception as e:
-                print(f"[MIDI] {e}")
-                self.device_connected = False
+                print(f"[MIDI] Open failed: {e}")
+            self.device_connected = False
+            if not self.stop_evt.is_set():
                 self.stop_evt.wait(2)
 
     def run(self):
