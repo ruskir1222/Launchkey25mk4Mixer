@@ -997,23 +997,40 @@ class HelperClient:
             self.post("/helper/sessions", {"sessions": list_sessions()})
             self.stop_evt.wait(SESSIONS_INTERVAL)
 
+    def led_init_loop(self):
+        """Dedicated thread: aggressively (re)opens MIDI out for LED feedback."""
+        import time as _t
+        attempts = 0
+        # Wait briefly for midi_loop to discover the device
+        _t.sleep(1.5)
+        while not self.stop_evt.is_set():
+            if not self._midi_out.opened:
+                print(f"[LED] init attempt #{attempts + 1}…")
+                ok = self._midi_out.open("launchkey")
+                if ok:
+                    self._midi_out.enter_daw_mode()
+                    # Light all 16 pads briefly to verify
+                    print("[LED] Running blink test on all 16 pads (cyan)…")
+                    for n in range(36, 52):
+                        self._midi_out.light_pad(n, 33)  # cyan
+                    _t.sleep(0.8)
+                    for n in range(36, 52):
+                        self._midi_out.light_pad(n, 0)   # off
+                    print("[LED] Blink test done. LEDs active.")
+                else:
+                    if attempts == 0:
+                        print("[LED] Could not open MIDI output for LED feedback.")
+                        print("[LED] Possible reasons: another app holds the DAW port, ")
+                        print("[LED] device in non-Custom pad mode, or wrong product ID.")
+                attempts += 1
+            self.stop_evt.wait(15)   # retry every 15s
+
     def state_loop(self):
         prev_pad_state = {}
-        led_attempts = 0
         while not self.stop_evt.is_set():
             data = self.get("/helper/state")
             if data and "mappings" in data:
                 self.dispatcher.update_mappings(data["mappings"])
-                # Try to open LED output. Retry every ~10s until it works.
-                if not self._midi_out.opened and self.device_connected:
-                    if led_attempts == 0 or led_attempts % 7 == 0:
-                        ok = self._midi_out.open("launchkey")
-                        if ok:
-                            # Put device into host-LED control mode
-                            self._midi_out.enter_daw_mode()
-                        elif led_attempts == 0:
-                            print("[LED] Pad LED feedback disabled — see ports list above.")
-                    led_attempts += 1
                 if self._midi_out.opened:
                     self._refresh_pad_leds(data["mappings"], prev_pad_state)
             self.stop_evt.wait(POLL_INTERVAL)
@@ -1187,6 +1204,7 @@ class HelperClient:
             threading.Thread(target=self.midi_loop, daemon=True),
             threading.Thread(target=self.report_loop, daemon=True),
             threading.Thread(target=self.report_loop, daemon=True),  # 2 workers for snappier dashboard updates
+            threading.Thread(target=self.led_init_loop, daemon=True),
         ]
         for t in threads:
             t.start()
