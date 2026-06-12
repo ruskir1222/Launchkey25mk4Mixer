@@ -42,6 +42,12 @@ a = Analysis(
         'pynput.mouse',
         'rtmidi',
         'launchkey_helper',
+        # System tray
+        'pystray',
+        'pystray._win32',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageDraw',
     ],
     hookspath=[],
     runtime_hooks=[],
@@ -51,7 +57,6 @@ a = Analysis(
         'numpy',
         'pandas',
         'scipy',
-        'PIL',
         'pytest',
     ],
     win_no_prefer_redirects=False,
@@ -75,7 +80,7 @@ exe = EXE(
     upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,        # set False later if you want a hidden window
+    console=False,       # hidden — app runs in system tray
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

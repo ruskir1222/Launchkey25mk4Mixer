@@ -68,8 +68,20 @@ PORT = int(os.environ.get("LAUNCHKEY_PORT", "8765"))
 DB_PATH = data_dir() / "launchkey.db"
 STATIC_DIR = resource_path("static")  # populated by build script (yarn build copied here)
 HELPER_DIR = resource_path("helper")
+LOG_PATH = data_dir() / "launchkey.log"
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# Write logs to BOTH stdout (visible in console build) AND a file in %APPDATA%
+# so users can debug even when the console is hidden (system-tray build).
+_log_handlers = [logging.StreamHandler()]
+try:
+    _log_handlers.append(logging.FileHandler(LOG_PATH, encoding="utf-8"))
+except Exception:
+    pass
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=_log_handlers,
+)
 log = logging.getLogger("launchkey-offline")
 
 
@@ -511,6 +523,58 @@ def start_helper_thread():
 
 
 # -----------------------------------------------------------------------------
+# System tray icon (optional — graceful no-op if pystray/Pillow missing)
+# -----------------------------------------------------------------------------
+def _build_tray_icon_image():
+    """Generate a simple icon programmatically so we don't ship an image file."""
+    from PIL import Image, ImageDraw
+    size = 64
+    img = Image.new("RGB", (size, size), (15, 15, 18))
+    d = ImageDraw.Draw(img)
+    # Orange "LK" badge on dark background — matches dashboard accent color.
+    d.rectangle([6, 6, size - 6, size - 6], outline=(255, 102, 0), width=3)
+    d.text((14, 14), "LK", fill=(255, 102, 0))
+    # A second pass with bigger pseudo-font: draw a stylized knob shape
+    d.ellipse([20, 22, 44, 46], outline=(255, 102, 0), width=2)
+    d.line([32, 28, 32, 35], fill=(255, 102, 0), width=2)
+    return img
+
+
+def run_with_tray(url: str):
+    """Run uvicorn in a thread and a pystray icon on the main thread."""
+    import pystray
+    from pystray import MenuItem as Item, Menu
+
+    icon_image = _build_tray_icon_image()
+
+    server_thread = threading.Thread(
+        target=lambda: uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning"),
+        daemon=True,
+        name="uvicorn-server",
+    )
+    server_thread.start()
+
+    def on_open(icon, item):
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+
+    def on_quit(icon, item):
+        log.info("Tray quit requested — shutting down.")
+        icon.stop()
+        os._exit(0)  # daemon threads will be killed
+
+    menu = Menu(
+        Item("Open Dashboard", on_open, default=True),
+        Item("Quit", on_quit),
+    )
+    icon = pystray.Icon("launchkey-mixer", icon_image, "Launchkey Mixer", menu)
+    log.info("Running in system tray. Right-click the tray icon for options.")
+    icon.run()  # blocks until on_quit
+
+
+# -----------------------------------------------------------------------------
 # Entrypoint
 # -----------------------------------------------------------------------------
 def main():
@@ -535,6 +599,15 @@ def main():
 
     # Spawn the helper (MIDI + Windows audio). Safe no-op on non-Windows.
     start_helper_thread()
+
+    # Prefer tray mode (windowed); fall back to plain console if pystray missing.
+    try:
+        import pystray  # noqa: F401
+        import PIL  # noqa: F401
+        run_with_tray(url)
+        return
+    except Exception as e:
+        log.warning("Tray unavailable (%s) — running in console mode.", e)
 
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="info")
 

@@ -8,6 +8,9 @@ requests>=2.32
 pycaw>=20240210
 comtypes>=1.4
 pynput>=1.7
+# System tray
+pystray>=0.19.5
+Pillow>=10.0
 # Bundler
 pyinstaller>=6.15
 # Note: python-rtmidi is installed separately by build_windows.bat with --only-binary=:all:

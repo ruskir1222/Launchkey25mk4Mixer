@@ -47,9 +47,21 @@ The build script:
 
 ## Running the exe
 
-Double-click `LaunchkeyMixer.exe`. A console window pops up showing logs, your default browser opens `http://127.0.0.1:8765`, and the dashboard works exactly like the cloud version.
+Double-click `LaunchkeyMixer.exe`. The app starts **in your Windows system tray** (no console window) and opens the dashboard in your default browser at `http://127.0.0.1:8765`.
+
+Right-click the tray icon for:
+- **Open Dashboard** — re-open the browser tab if you closed it
+- **Quit** — fully shut down the app (and the helper)
+
+Closing the browser tab does **not** stop the app — it keeps running in the tray, so your Launchkey stays bound to actions.
 
 Plug in your Launchkey Mini MK4 25 *before* launching for fastest detection.
+
+### Logs
+If something looks off, check the log file at:
+```
+%APPDATA%\LaunchkeyMixer\launchkey.log
+```
 
 ### Optional flags
 - Change port: `set LAUNCHKEY_PORT=9000 && LaunchkeyMixer.exe`
