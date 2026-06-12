@@ -1160,8 +1160,21 @@ class HelperClient:
             m = self.dispatcher.mappings.get(cid)
             if m and self._midi_out.opened:
                 color = self._color_for_mapping(m)
-                self._midi_out.send_short(0x90 | (msg.channel & 0x0F), msg.note & 0x7F, color & 0x7F)
-                print(f"[LED] echo -> ch{msg.channel} note={msg.note} color={color}")
+                n = msg.note & 0x7F
+                ch = msg.channel & 0x0F
+                # 1. Note On to the source channel/note
+                self._midi_out.send_short(0x90 | ch, n, color & 0x7F)
+                # 2. SysEx static-color via every known Launchkey product byte and pad encoding.
+                #    Format: F0 00 20 29 02 <product> 03 00 <pad_addr> <color> F7
+                #    Pad address is tried as: raw note, 0x60 + lower-nibble, drum note (36 + n%16).
+                addresses = {n, 0x60 + (n & 0x0F), 0x40 + (n & 0x0F), 36 + (n & 0x0F)}
+                for product in (0x0E, 0x0F, 0x13, 0x14, 0x11, 0x12):
+                    for addr in addresses:
+                        self._midi_out.send_sysex(bytes([
+                            0xF0, 0x00, 0x20, 0x29, 0x02, product, 0x03, 0x00,
+                            addr & 0x7F, color & 0x7F, 0xF7
+                        ]))
+                print(f"[LED] echo -> ch{ch} note={n} color={color} (+SysEx variants)")
         # 2) Then queue an async report for the dashboard (never blocks)
         self._report(msg, cid)
         # 3) Print
