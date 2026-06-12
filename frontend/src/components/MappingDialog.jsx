@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { LK } from "@/constants/testIds";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +64,9 @@ export default function MappingDialog({ controlId, mapping, sessions, onClose, o
             <span>{controlLabel(controlId)}</span>
             <span className="text-xs font-mono text-neutral-500">{controlId}</span>
           </DialogTitle>
+          <DialogDescription className="text-xs text-neutral-500">
+            Bind this control to a Windows action. The helper agent will apply it live.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
