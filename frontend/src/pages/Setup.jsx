@@ -63,7 +63,7 @@ export default function Setup() {
         <section>
           <div className="overline mb-3">step-by-step</div>
           <h1 className="font-display text-4xl sm:text-5xl font-semibold mb-3">
-            Hook up your <span className="text-brand">Launchkey 37</span> to Windows.
+            Hook up your <span className="text-brand">Launchkey Mini MK4 25</span> to Windows.
           </h1>
           <p className="text-neutral-400 max-w-2xl">
             Per-app volume control needs a tiny local agent. This dashboard sends your mapping profiles to a small Python script
@@ -137,7 +137,7 @@ python -m pip install --only-binary=:all: python-rtmidi`}</Code>
         <Step n={5} title="Plug in your Launchkey and run the helper">
           <Code>{`python launchkey_helper.py --api "${BACKEND_URL}"`}</Code>
           You should see something like:
-          <Code>{`[MIDI] Opening port: Launchkey 37 MK3 LKMK3 MIDI
+          <Code>{`[MIDI] Opening: Launchkey Mini MK4 25 MIDI
 [Launchkey Mixer] Helper running. Dashboard API: ${BACKEND_URL}`}</Code>
         </Step>
 

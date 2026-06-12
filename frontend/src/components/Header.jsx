@@ -33,7 +33,7 @@ export default function Header({ helperStatus, midiLearn, onToggleMidiLearn, onO
             </span>
             {connected && (
               <span className="text-neutral-600 hidden md:inline">
-                · {device ? 'LK37 ✓' : 'NO MIDI'} {port ? `· ${port}` : ''}
+                · {device ? 'LK ✓' : 'NO MIDI'} {port ? `· ${port}` : ''}
               </span>
             )}
           </div>

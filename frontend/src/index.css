@@ -161,3 +161,54 @@
 ::-webkit-scrollbar-track { background: #0a0a0a; }
 ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+/* ============ MK4 Mini 25 specific ============ */
+.mk4-shell {
+  background: linear-gradient(180deg, #0c0c0c, #080808);
+  border: 1px solid #1c1c1c;
+  border-radius: 6px;
+  padding: 18px 22px 14px;
+  position: relative;
+}
+.mk4-shell::before {
+  content: ""; position: absolute; inset: 0; border-radius: 6px;
+  background: radial-gradient(120% 80% at 50% 0%, rgba(255,85,0,0.04), transparent 60%);
+  pointer-events: none;
+}
+.mk4-row { position: relative; }
+
+.mk4-knob {
+  width: 44px; height: 44px;
+}
+.mk4-knob .knob-indicator { height: 11px; transform-origin: 50% 19px; }
+
+.mk4-pad {
+  aspect-ratio: 1/1;
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 5px;
+  min-height: 48px;
+}
+.mk4-pad:hover { background: #1f1f1f; border-color: #3a3a3a; }
+.mk4-pad.assigned {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 14px -3px rgba(255,85,0,0.55), 0 0 0 1px rgba(255,85,0,0.25);
+}
+
+.mk4-btn {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; border-width: 1px; border-style: solid;
+  background: #141414;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.mk4-btn:hover { background: #1c1c1c; color: #fff; border-color: #3a3a3a; }
+
+/* MK4 mini keys — smaller, more compact */
+.mk4-key {
+  border-radius: 0 0 3px 3px;
+  border-bottom-width: 3px;
+}
+.mk4-key.black {
+  width: 14px; margin: 0 -7px;
+  border-bottom-width: 3px;
+}
