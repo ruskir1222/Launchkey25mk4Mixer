@@ -469,18 +469,24 @@ class MidiOut:
 
     def open(self, port_name_substring: str = "launchkey") -> bool:
         if not self.winmm:
+            print("[LED] Not Windows — output disabled.")
             return False
         ports = self.list_outputs()
-        # Prefer DAW port (MIDIIN2/InControl/DAW) for LEDs on MK3/MK4
+        print(f"[LED] Available MIDI OUT ports: {ports or '(none)'}")
         candidates = [p for p in ports if port_name_substring.lower() in p.lower()]
         if not candidates:
+            print(f"[LED] No output port containing '{port_name_substring}'.")
             return False
-        # MK4: the DAW out port lights the pads. Look for that first; fallback to main.
-        for needle in ("daw", "midiin2", "incontrol"):
+        # Prefer DAW port for LEDs on MK3/MK4; fallback to main.
+        chosen = None
+        for needle in ("daw", "midiout2", "midiin2", "incontrol"):
             for p in candidates:
                 if needle in p.lower():
-                    return self._open_index(p, ports)
-        return self._open_index(candidates[0], ports)
+                    chosen = p; break
+            if chosen: break
+        if not chosen:
+            chosen = candidates[0]
+        return self._open_index(chosen, ports)
 
     def _open_index(self, port_name: str, ports: List[str]) -> bool:
         idx = ports.index(port_name)
@@ -861,15 +867,20 @@ class HelperClient:
 
     def state_loop(self):
         prev_pad_state = {}
+        led_attempts = 0
         while not self.stop_evt.is_set():
             data = self.get("/helper/state")
             if data and "mappings" in data:
                 self.dispatcher.update_mappings(data["mappings"])
-                # Refresh LED feedback for pads when mappings change
-                if not self._led_opened_once and self.device_connected:
-                    self._led_opened_once = True
-                    self._midi_out.open("launchkey")
-                self._refresh_pad_leds(data["mappings"], prev_pad_state)
+                # Try to open LED output. Retry every ~10s until it works.
+                if not self._midi_out.opened and self.device_connected:
+                    if led_attempts == 0 or led_attempts % 7 == 0:
+                        ok = self._midi_out.open("launchkey")
+                        if not ok and led_attempts == 0:
+                            print("[LED] Pad LED feedback disabled — see ports list above.")
+                    led_attempts += 1
+                if self._midi_out.opened:
+                    self._refresh_pad_leds(data["mappings"], prev_pad_state)
             self.stop_evt.wait(POLL_INTERVAL)
 
     def _refresh_pad_leds(self, mappings, prev_state):
@@ -1054,7 +1065,7 @@ class HelperClient:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API_URL_DEFAULT, help="Dashboard base URL")
-    ap.add_argument("--list-ports", action="store_true", help="List MIDI input ports and exit")
+    ap.add_argument("--list-ports", action="store_true", help="List MIDI input + output ports and exit")
     ap.add_argument("--debug", action="store_true", help="Print every API call")
     args = ap.parse_args()
     global DEBUG
@@ -1064,9 +1075,16 @@ def main():
         print("[WARN] API URL is localhost — pass --api https://YOUR-APP.preview.emergentagent.com")
     backend = pick_backend()
     if args.list_ports:
-        print("\nMIDI input ports:")
+        print("\nMIDI INPUT ports:")
         for n in backend.list_inputs():
             print(f"  - {n}")
+        try:
+            mo = MidiOut()
+            print("\nMIDI OUTPUT ports:")
+            for n in mo.list_outputs():
+                print(f"  - {n}")
+        except Exception as e:
+            print(f"  (output enumeration failed: {e})")
         return
     HelperClient(args.api, backend).run()
 
