@@ -29,10 +29,11 @@ export default function LayoutWizard({ open, profileId, onClose, latestEvent }) 
   const [stepIdx, setStepIdx] = useState(0);
   const [waiting, setWaiting] = useState(true);
   const [lastSinceTs, setLastSinceTs] = useState(null);
+  const [lastAcceptedTs, setLastAcceptedTs] = useState(0);
   const step = LAYOUT_STEPS[stepIdx];
 
   useEffect(() => {
-    if (!open) { setStepIdx(0); setWaiting(true); return; }
+    if (!open) { setStepIdx(0); setWaiting(true); setLastAcceptedTs(0); return; }
     setLastSinceTs(new Date().toISOString());
   }, [open]);
 
@@ -40,7 +41,20 @@ export default function LayoutWizard({ open, profileId, onClose, latestEvent }) 
   useEffect(() => {
     if (!open || !waiting || !latestEvent || !step) return;
     if (lastSinceTs && latestEvent.timestamp <= lastSinceTs) return;
+
+    // --- Momentary-switch filtering ---
+    // Skip releases (note_off, or note_on with velocity 0, or cc=0).
+    // Skip aftertouch repeats by debouncing for 800ms after the last capture.
+    const ev = latestEvent;
+    const isRelease =
+      ev.raw_type === "note_off" ||
+      (ev.raw_type === "note_on" && (ev.value || 0) === 0) ||
+      (ev.raw_type === "control_change" && (ev.value || 0) === 0);
+    if (isRelease) return;
+    if (Date.now() - lastAcceptedTs < 800) return;
+
     const physicalId = latestEvent.control_id;
+    setLastAcceptedTs(Date.now());
     setWaiting(false);
     (async () => {
       try {
@@ -60,6 +74,7 @@ export default function LayoutWizard({ open, profileId, onClose, latestEvent }) 
           } else {
             setStepIdx(stepIdx + 1);
             setLastSinceTs(latestEvent.timestamp);
+            setLastAcceptedTs(Date.now());
             setWaiting(true);
           }
         }, 350);
@@ -68,12 +83,13 @@ export default function LayoutWizard({ open, profileId, onClose, latestEvent }) 
         setWaiting(true);
       }
     })();
-  }, [latestEvent, open, waiting, step, stepIdx, profileId, onClose, lastSinceTs]);
+  }, [latestEvent, open, waiting, step, stepIdx, profileId, onClose, lastSinceTs, lastAcceptedTs]);
 
   const skip = () => {
     if (stepIdx + 1 >= LAYOUT_STEPS.length) { onClose(); return; }
     setStepIdx(stepIdx + 1);
     setLastSinceTs(new Date().toISOString());
+    setLastAcceptedTs(Date.now());
     setWaiting(true);
   };
 
