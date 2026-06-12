@@ -9,20 +9,31 @@ REM ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-REM --- Detect package manager (prefer yarn, fall back to npm) ---
+REM --- Detect package manager (prefer yarn; auto-install yarn via npm if missing) ---
 set PKG=
 where yarn >nul 2>&1
 if %errorlevel%==0 (
     set PKG=yarn
-    set PKG_INSTALL=yarn install
-    set PKG_BUILD=yarn build
 ) else (
     where npm >nul 2>&1
     if !errorlevel!==0 (
-        set PKG=npm
-        set PKG_INSTALL=npm install --legacy-peer-deps
-        set PKG_BUILD=npm run build
+        echo Yarn not found — installing it globally via npm...
+        call npm install -g yarn
+        if !errorlevel! NEQ 0 (
+            echo *** Failed to install yarn. Falling back to npm directly. ***
+            set PKG=npm
+        ) else (
+            set PKG=yarn
+        )
     )
+)
+
+if "%PKG%"=="yarn" (
+    set PKG_INSTALL=yarn install
+    set PKG_BUILD=yarn build
+) else if "%PKG%"=="npm" (
+    set PKG_INSTALL=npm install --legacy-peer-deps
+    set PKG_BUILD=npm run build
 )
 
 if "%PKG%"=="" (
