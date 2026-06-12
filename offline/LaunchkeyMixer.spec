@@ -26,13 +26,20 @@ a = Analysis(
         'uvicorn.protocols.websockets.websockets_impl',
         'uvicorn.lifespan.on',
         'uvicorn.lifespan.off',
-        # Helper deps
+        # Helper deps — explicitly listed because launchkey_helper is loaded
+        # dynamically and PyInstaller's static analysis can't see them.
+        'requests',
+        'urllib3',
+        'charset_normalizer',
+        'idna',
+        'certifi',
         'pycaw',
         'pycaw.pycaw',
         'comtypes',
         'comtypes.client',
         'pynput',
         'pynput.keyboard',
+        'pynput.mouse',
         'rtmidi',
         'launchkey_helper',
     ],

@@ -30,6 +30,18 @@ from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 import uvicorn
 
+# These imports are not used directly here but ensure PyInstaller bundles them
+# (launchkey_helper is loaded dynamically and its deps aren't statically visible).
+import requests  # noqa: F401
+try:
+    import pycaw  # noqa: F401
+    import pycaw.pycaw  # noqa: F401
+    import comtypes  # noqa: F401
+    import pynput  # noqa: F401
+    import pynput.keyboard  # noqa: F401
+except Exception:
+    pass  # only needed at runtime on Windows; safe to skip on dev machines
+
 # -----------------------------------------------------------------------------
 # Resource resolution (works in dev AND inside a PyInstaller --onefile bundle)
 # -----------------------------------------------------------------------------
