@@ -1013,7 +1013,8 @@ class HelperClient:
             self.stop_evt.wait(SESSIONS_INTERVAL)
 
     def led_init_loop(self):
-        """Dedicated thread: aggressively (re)opens MIDI out for LED feedback."""
+        """Dedicated thread: aggressively (re)opens MIDI out for LED feedback
+        and keeps the device in Programmer Mode."""
         import time as _t
         attempts = 0
         _t.sleep(1.5)
@@ -1023,21 +1024,15 @@ class HelperClient:
                 ok = self._midi_out.open("launchkey")
                 if ok:
                     self._midi_out.enter_daw_mode()
-                    print("[LED] Running blink test on MK4 + MK4 Mini drum ranges (cyan)…")
-                    for n in list(range(36, 52)) + list(range(96, 112)):
-                        self._midi_out.light_pad(n, 33)  # cyan
-                    _t.sleep(0.8)
-                    for n in list(range(36, 52)) + list(range(96, 112)):
-                        self._midi_out.light_pad(n, 0)
-                    print("[LED] Blink test done. LEDs active.")
+                    print("[LED] Programmer Mode armed. LEDs ready.")
                 else:
                     if attempts == 0:
                         print("[LED] Could not open MIDI output for LED feedback.")
                 attempts += 1
             else:
-                # Re-send Programmer Mode periodically — some MK4 firmwares drop out of it.
+                # Keep Programmer Mode alive (some MK4 firmwares time out of it)
                 self._midi_out.enter_daw_mode()
-            self.stop_evt.wait(20)
+            self.stop_evt.wait(5)
 
     def state_loop(self):
         prev_pad_state = {}
