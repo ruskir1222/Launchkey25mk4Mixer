@@ -498,10 +498,10 @@ class Dispatcher:
     def update_mappings(self, mappings: List[Dict[str, Any]]):
         self.mappings = {m["control_id"]: m for m in mappings}
 
-    def handle(self, control_id: str, msg: Msg):
+    def handle(self, control_id: str, msg: Msg) -> bool:
         m = self.mappings.get(control_id)
         if not m:
-            return
+            return False
         action = m.get("action_type")
         target = m.get("target_app")
         params = m.get("params") or {}
@@ -513,42 +513,46 @@ class Dispatcher:
                 elif msg.type == "pitchwheel":
                     vol = (msg.pitch + 8192) / 16383.0
                 else:
-                    return
+                    return False
                 if params.get("invert"):
                     vol = 1.0 - vol
                 set_app_volume(target, vol)
-                return
+                return True
 
             if action == "system_volume" and msg.type == "control_change":
                 vol = msg.value / 127.0
                 if params.get("invert"):
                     vol = 1.0 - vol
                 set_master_volume(vol)
-                return
+                return True
 
             is_trigger = (
                 (msg.type == "note_on" and (msg.velocity or 0) > 0)
                 or (msg.type == "control_change" and (msg.value or 0) > 0)
             )
             if not is_trigger:
-                return
+                return False
 
             if action == "toggle_mute" and target:
-                toggle_app_mute(target); return
+                toggle_app_mute(target); return True
             if action in ("media_play_pause", "media_next", "media_prev", "media_stop"):
-                media_key(action); return
+                media_key(action); return True
             if action == "volume_step_up" and target:
                 step = float(params.get("step", 0.05))
                 for s in list_sessions():
                     if s["process_name"].lower() == target.lower():
-                        set_app_volume(target, s["volume"] + step); return
+                        set_app_volume(target, s["volume"] + step); return True
+                return False
             if action == "volume_step_down" and target:
                 step = float(params.get("step", 0.05))
                 for s in list_sessions():
                     if s["process_name"].lower() == target.lower():
-                        set_app_volume(target, s["volume"] - step); return
+                        set_app_volume(target, s["volume"] - step); return True
+                return False
         except Exception as e:
             print(f"[WARN] dispatch: {e}")
+            return False
+        return False
 
 
 import queue
@@ -652,14 +656,14 @@ class HelperClient:
         if not cid:
             return
         # 1) Dispatch the Windows action FIRST (instant, local)
-        self.dispatcher.handle(cid, msg)
+        had_action = self.dispatcher.handle(cid, msg)
         # 2) Then queue an async report for the dashboard (never blocks)
         self._report(msg, cid)
-        # 3) Print only if not throttled (continuous CCs are noisy)
+        # 3) Print: triggers always, continuous only in debug
         if DEBUG or msg.type not in ("control_change", "pitchwheel"):
-            self._log_msg(msg, cid)
+            self._log_msg(msg, cid, had_action)
 
-    def _log_msg(self, msg: Msg, cid: str):
+    def _log_msg(self, msg: Msg, cid: str, had_action: bool = False):
         if msg.type == "control_change":
             raw = f"CC ch={msg.channel} #{msg.control}={msg.value}"
         elif msg.type == "note_on":
@@ -670,7 +674,8 @@ class HelperClient:
             raw = f"Pitch ch={msg.channel} val={msg.pitch}"
         else:
             raw = msg.type
-        print(f"[MIDI] {raw}  -> {cid}")
+        suffix = "" if had_action else "   (no mapping — use MIDI LEARN on dashboard)"
+        print(f"[MIDI] {raw}  -> {cid}{suffix}")
 
     def _find_launchkey(self) -> Optional[str]:
         try:
