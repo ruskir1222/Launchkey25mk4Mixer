@@ -116,6 +116,22 @@
                 inset 0 0 18px -2px rgba(0, 216, 255, 0.9);
   }
 }
+
+/* active state — the mapping is currently engaged (e.g. mute is ON) */
+.pad.active {
+  background: linear-gradient(135deg, #ff5500 0%, #ff8030 100%) !important;
+  border-color: #ff8c40 !important;
+  box-shadow:
+    0 0 18px 2px rgba(255, 85, 0, 0.55),
+    inset 0 0 14px -2px rgba(255, 200, 120, 0.55);
+}
+.pad.active span { color: #fff !important; font-weight: 600; }
+.knob.active {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 14px 1px rgba(255, 85, 0, 0.6);
+  background: radial-gradient(circle at 30% 30%, #ff7030, #6c2200 70%);
+}
+.knob.active .knob-indicator { background: #fff; }
 .knob {
   width: 56px; height: 56px; border-radius: 50%;
   background: radial-gradient(circle at 30% 30%, #2a2a2a, #0c0c0c 70%);

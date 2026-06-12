@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LK } from "@/constants/testIds";
 import {
   Play, Square, Circle, Repeat, Undo2, Captions, Music2,
@@ -13,16 +13,16 @@ function buildKeys(count = 25) {
   return Array.from({ length: count }, (_, i) => ({ idx: i + 1, type: pattern[i % 12] }));
 }
 
-function Pad({ idx, assigned, flashing, targeting, onClick }) {
+function Pad({ idx, assigned, flashing, targeting, active, onClick }) {
   return (
     <button
       data-testid={LK.pad(idx)}
       onClick={onClick}
-      className={`pad mk4-pad ${assigned ? 'assigned' : ''} ${flashing ? 'flash' : ''} ${targeting ? 'targeting' : ''} relative flex items-center justify-center`}
-      title={`Pad ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}`}
+      className={`pad mk4-pad ${assigned ? 'assigned' : ''} ${flashing ? 'flash' : ''} ${targeting ? 'targeting' : ''} ${active ? 'active' : ''} relative flex items-center justify-center`}
+      title={`Pad ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}${active ? ' · ACTIVE' : ''}`}
     >
       {assigned && (
-        <span className="text-[10px] font-mono text-brand truncate px-1 max-w-full leading-tight">
+        <span className={`text-[10px] font-mono truncate px-1 max-w-full leading-tight ${active ? 'text-white' : 'text-brand'}`}>
           {assigned.label || assigned.action_type.replace(/_/g, ' ')}
         </span>
       )}
@@ -30,14 +30,14 @@ function Pad({ idx, assigned, flashing, targeting, onClick }) {
   );
 }
 
-function Knob({ idx, assigned, flashing, targeting, onClick }) {
+function Knob({ idx, assigned, flashing, targeting, active, onClick }) {
   const angle = assigned ? 90 : -45;
   return (
     <button
       data-testid={LK.knob(idx)}
       onClick={onClick}
-      className={`knob mk4-knob ${assigned ? 'assigned' : ''} ${flashing ? 'pulse-accent' : ''} ${targeting ? 'targeting' : ''}`}
-      title={`Encoder ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}`}
+      className={`knob mk4-knob ${assigned ? 'assigned' : ''} ${flashing ? 'pulse-accent' : ''} ${targeting ? 'targeting' : ''} ${active ? 'active' : ''}`}
+      title={`Encoder ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}${active ? ' · ACTIVE' : ''}`}
     >
       <div className="knob-indicator" style={{ transform: `translateX(-50%) rotate(${angle}deg)` }} />
       <span className="text-[9px] font-mono text-neutral-500 absolute -bottom-4">E{idx}</span>
@@ -90,7 +90,7 @@ function ModePill({ label, active = false }) {
   );
 }
 
-export default function HardwareVisualizer({ mappingByControl, flashControl, midiLearn, learnTarget, onControlClick }) {
+export default function HardwareVisualizer({ mappingByControl, flashControl, midiLearn, learnTarget, sessions, onControlClick }) {
   const keys = buildKeys(25);
   const [activeFlash, setActiveFlash] = useState(null);
 
@@ -100,6 +100,25 @@ export default function HardwareVisualizer({ mappingByControl, flashControl, mid
     const t = setTimeout(() => setActiveFlash(null), 600);
     return () => clearTimeout(t);
   }, [flashControl]);
+
+  // Map process_name -> session, lowercase for case-insensitive lookup
+  const sessionByName = useMemo(() => {
+    const m = {};
+    (sessions || []).forEach(s => { m[(s.process_name || '').toLowerCase()] = s; });
+    return m;
+  }, [sessions]);
+
+  // Determine if a mapping is "currently active" based on live session state.
+  const isMappingActive = (mapping) => {
+    if (!mapping || !mapping.target_app) return false;
+    const sess = sessionByName[mapping.target_app.toLowerCase()];
+    if (!sess) return false;
+    if (mapping.action_type === "toggle_mute") return !!sess.muted;
+    if (mapping.action_type === "set_volume" || mapping.action_type === "volume_step_up" || mapping.action_type === "volume_step_down") {
+      return !sess.muted; // app is currently outputting audio (i.e. its volume is being controlled)
+    }
+    return false;
+  };
 
   const isFlashing = (id) => activeFlash === id;
   const isTargeting = (id) => learnTarget === id;
@@ -213,12 +232,14 @@ export default function HardwareVisualizer({ mappingByControl, flashControl, mid
                 <Pad key={i + 1} idx={i + 1}
                   assigned={map[`pad-${i + 1}`]} flashing={isFlashing(`pad-${i + 1}`)}
                   targeting={isTargeting(`pad-${i + 1}`)}
+                  active={isMappingActive(map[`pad-${i + 1}`])}
                   onClick={() => onControlClick(`pad-${i + 1}`)} />
               ))}
               {Array.from({ length: 8 }, (_, i) => (
                 <Pad key={i + 9} idx={i + 9}
                   assigned={map[`pad-${i + 9}`]} flashing={isFlashing(`pad-${i + 9}`)}
                   targeting={isTargeting(`pad-${i + 9}`)}
+                  active={isMappingActive(map[`pad-${i + 9}`])}
                   onClick={() => onControlClick(`pad-${i + 9}`)} />
               ))}
             </div>

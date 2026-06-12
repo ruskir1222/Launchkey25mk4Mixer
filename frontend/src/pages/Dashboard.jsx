@@ -186,6 +186,7 @@ export default function Dashboard() {
               flashControl={flashControl}
               midiLearn={midiLearn}
               learnTarget={learnTarget}
+              sessions={sessions}
               onControlClick={onControlClick}
             />
             <CollapsibleSection
