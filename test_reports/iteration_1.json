@@ -1,0 +1,40 @@
+{
+  "summary": "Backend: 10/10 pytest cases pass for profiles, mappings, helper telemetry, MIDI events, helper state and script download. Frontend: Dashboard, header, helper-status, MIDI LEARN/SETUP buttons render. Hardware visualizer renders complete: 16 pads, 8 knobs, 37 keys, all 4 transport buttons, mod-wheel, pitch-wheel. Mapping dialog opens correctly on clicking any control and shows the control name. HOWEVER a CRITICAL frontend dev-mode overlay blocks the UI after the first interaction with Radix Select inside the Mapping Dialog: 'ResizeObserver loop completed with undelivered notifications' is surfaced as a CRA dev error overlay covering the entire screen — preventing the SAVE click (mapping never persisted; backend list empty after attempted save). All subsequent flows (mapping delete via UI, profile create via UI, MIDI-learn auto-open, helper-online status reflection, setup page nav) were blocked by this overlay and could not be validated end-to-end. Setup page nav was not reached.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MappingDialog (Radix Select)", "issue": "Triggering the action-type Select inside the Dialog raises 'ResizeObserver loop completed with undelivered notifications' which CRA dev overlay treats as an uncaught runtime error, blanket-covering the screen and blocking SAVE/Delete clicks. Mapping is NOT persisted (verified: GET /api/profiles/{id}/mappings returns [] after attempted save).", "selector": "[data-testid=\"mapping-action-select\"]", "priority": "HIGH"},
+      {"component": "Dashboard build mode", "issue": "Frontend is being served with the CRA dev overlay enabled in the preview URL. Benign ResizeObserver warnings from Radix get promoted to a fullscreen error overlay, making the app unusable in this environment.", "selector": "body > iframe (react-error-overlay)", "priority": "HIGH"},
+      {"component": "Radix DialogContent", "issue": "Console warning: 'Missing Description or aria-describedby={undefined} for DialogContent' — add DialogDescription or aria-describedby for accessibility.", "selector": "[data-testid=\"mapping-dialog\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Save mapping from UI", "issue": "Backend never receives PUT /api/profiles/{id}/mappings/knob-1 (mappings list stays empty). Likely because Save click is intercepted by the dev error overlay, OR the action_type select value isn't propagating before clicking Save.", "affected_selectors": ["[data-testid=\"mapping-save\"]", "[data-testid=\"mapping-action-select\"]"]},
+      {"flow": "MIDI learn auto-open / Profile create / Setup page", "issue": "Not validated end-to-end because of the blocking dev error overlay following the first dialog interaction.", "affected_selectors": ["[data-testid=\"midi-learn-toggle\"]", "[data-testid=\"new-profile-btn\"]", "[data-testid=\"download-script-btn\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_launchkey_api.py", "/app/test_reports/pytest/launchkey_api.xml"],
+  "action_items": [
+    "Suppress benign ResizeObserver warnings so CRA dev overlay doesn't blanket the UI. Options: (a) add a window error handler in index.js that swallows 'ResizeObserver loop completed/limit exceeded' messages and calls stopImmediatePropagation; (b) disable react-error-overlay via FAST_REFRESH=false / process.env.NODE_ENV='production' build; (c) wrap Radix Select with a ResizeObserver-safe variant. This is blocking nearly all UI flows.",
+    "Re-verify Save Mapping persistence after the overlay fix — confirm PUT hits /api/profiles/{id}/mappings/{control_id} and the control gets the orange/assigned border styling.",
+    "Add DialogDescription (or aria-describedby) to MappingDialog to satisfy Radix a11y warning.",
+    "Re-run MIDI-learn flow: enable learn -> POST /api/helper/midi-event -> verify dialog auto-opens for the reported control_id.",
+    "Validate /setup page renders all 6 steps and download-script-btn href ends with /api/helper/script and code blocks show REACT_APP_BACKEND_URL."
+  ],
+  "critical_code_review_comments": [
+    "server.py: helper_status uses datetime.fromisoformat on stored ISO — fine because now_iso emits +00:00; OK.",
+    "server.py uses deprecated FastAPI on_event hooks (startup/shutdown). Migrate to lifespan handlers for FastAPI >=0.110.",
+    "Mapping upsert uses both update_one(upsert=True) and pre-fetch — works but is redundant; can simplify.",
+    "helper script endpoint reads file on every request — fine for small file, but consider caching.",
+    "No auth on /api/helper/* — acceptable for MVP but anyone with the URL can spoof helper state/sessions.",
+    "Frontend MappingDialog appears to call Select inside a Dialog (Radix) which is known to throw ResizeObserver warnings; wrap with try/catch or upgrade Radix versions."
+  ],
+  "updated_files": ["/app/backend/tests/test_launchkey_api.py"],
+  "success_rate": {"backend": "100%", "frontend": "~40% (rendering + dialog open OK; save/delete/profile-create/midi-learn/setup blocked by dev overlay)"},
+  "test_credentials": "none (no auth in this app)",
+  "seed_data_creation": "Default profile auto-seeded by backend startup; tests create and clean up TEST_-prefixed profiles.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend is solid; do not re-run backend unless code changes. Focus on frontend after the ResizeObserver/error-overlay is suppressed. Use REACT_APP_BACKEND_URL from /app/frontend/.env. To simulate the Windows helper, POST to /api/helper/heartbeat (every <8s for 'online'), /api/helper/sessions, /api/helper/midi-event. Backend test file: /app/backend/tests/test_launchkey_api.py (run: pytest backend/tests/test_launchkey_api.py).",
+  "rca of the issue": "The CRA dev runtime error overlay (react-error-overlay) intercepts ANY window 'error' event including the harmless 'ResizeObserver loop completed with undelivered notifications' that Radix UI's Select+Dialog combo triggers when the popper measures content. Once shown, the overlay renders as a top-level fixed iframe over the whole document, blocking all pointer events to underlying UI. Reproduction: open Dashboard -> click knob-1 -> open action-type Select. Mitigation: in /app/frontend/src/index.js add\n  window.addEventListener('error', (e) => { if (e.message && e.message.includes('ResizeObserver')) { e.stopImmediatePropagation(); e.preventDefault(); } });\nor build/serve in production mode."
+}
