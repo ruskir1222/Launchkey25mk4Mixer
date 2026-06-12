@@ -6,6 +6,8 @@
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![Stack](https://img.shields.io/badge/stack-React%20%7C%20FastAPI%20%7C%20MongoDB-orange)
 
+![Dashboard](docs/dashboard.jpg)
+
 ---
 
 ## ✨ What it does
@@ -102,6 +104,12 @@ The on-screen Launchkey visualizer will start reacting to your physical device. 
 - Click any knob/pad/key on the visualizer → choose an action → save
 - Or use **MIDI Learn**: click "Learn" then wiggle the physical control
 - Or use the **Layout Wizard**: step through every control sequentially
+
+![Mapping Dialog](docs/mapping-dialog.jpg)
+
+The setup page walks you through the helper install:
+
+![Setup Page](docs/setup.jpg)
 
 ---
 
