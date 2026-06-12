@@ -36,7 +36,6 @@ function Pad({ idx, assigned, flashing, onClick }) {
       className={`pad mk4-pad ${assigned ? 'assigned' : ''} ${flashing ? 'flash' : ''} relative flex items-center justify-center`}
       title={`Pad ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}`}
     >
-      <span className="text-[9px] font-mono text-neutral-500 absolute top-1 left-1.5">{idx}</span>
       {assigned && (
         <span className="text-[10px] font-mono text-brand truncate px-1 max-w-full leading-tight">
           {assigned.label || assigned.action_type.replace(/_/g, ' ')}
