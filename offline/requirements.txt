@@ -1,13 +1,15 @@
-fastapi==0.110.1
-uvicorn==0.27.0
-pydantic==2.6.4
+# Loose version pins so pip picks wheels matching your Python version.
+# (Pinned versions failed on Python 3.14+.)
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2.6
 # Helper-side deps (Windows MIDI + audio)
-requests==2.32.3
-pycaw==20240210
-comtypes==1.4.5
-pynput==1.7.7
+requests>=2.32
+pycaw>=20240210
+comtypes>=1.4
+pynput>=1.7
 # Bundler
-pyinstaller==6.6.0
+pyinstaller>=6.15
 # Note: python-rtmidi is installed separately by build_windows.bat with --only-binary=:all:
 # If the binary wheel is unavailable for your Python version, the helper falls back to
 # the built-in winmm.dll backend automatically — no compiler needed.
