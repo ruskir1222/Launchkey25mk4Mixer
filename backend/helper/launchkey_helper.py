@@ -60,21 +60,26 @@ CC_MAP: Dict[int, str] = {
     118: "transport-loop",
 }
 
-# Pads. Different Launchkey models use different note ranges. We accept BOTH
-# the MK3 range (40..55) and the MK4 range (36..51) on channel 9.
+# Pads. Different Launchkey models use different note ranges. We accept all
+# common ranges: MK3 (40..55), MK4 (36..51), MK4 Mini (96..111).
 PAD_NOTES: Dict[int, str] = {}
 # MK4 / standard drum layout: bottom row 36..43, top row 44..51
 for i, n in enumerate(range(36, 44)):
-    PAD_NOTES[n] = f"pad-{i + 9}"   # bottom physical row -> pads 9..16
+    PAD_NOTES[n] = f"pad-{i + 9}"   # bottom row → pads 9..16
 for i, n in enumerate(range(44, 52)):
-    PAD_NOTES[n] = f"pad-{i + 1}"   # top physical row -> pads 1..8
-# MK3 InControl extras (won't clash because they're outside 36..51)
+    PAD_NOTES[n] = f"pad-{i + 1}"   # top row → pads 1..8
+# MK4 Mini native drum range: 0x60..0x6F (96..111). Bottom row 96..103, top 104..111.
+for i, n in enumerate(range(96, 104)):
+    PAD_NOTES[n] = f"pad-{i + 9}"   # bottom row → pads 9..16
+for i, n in enumerate(range(104, 112)):
+    PAD_NOTES[n] = f"pad-{i + 1}"   # top row → pads 1..8
+# MK3 InControl extras
 for i, n in enumerate(range(40, 48)):
     PAD_NOTES.setdefault(n, f"pad-{i + 1}")
 for i, n in enumerate(range(48, 56)):
     PAD_NOTES.setdefault(n, f"pad-{i + 9}")
 
-PAD_CHANNELS = {9, 15}   # 9 = standard drum / MK4 ; 15 = MK3 InControl
+PAD_CHANNELS = {9, 15, 0}   # accept drum / InControl / sometimes channel 1
 DRUM_CHANNELS = PAD_CHANNELS
 
 # Keys: anything on non-drum channels. Mapped to key-1, key-2, ... by
@@ -1011,7 +1016,6 @@ class HelperClient:
         """Dedicated thread: aggressively (re)opens MIDI out for LED feedback."""
         import time as _t
         attempts = 0
-        # Wait briefly for midi_loop to discover the device
         _t.sleep(1.5)
         while not self.stop_evt.is_set():
             if not self._midi_out.opened:
@@ -1019,21 +1023,21 @@ class HelperClient:
                 ok = self._midi_out.open("launchkey")
                 if ok:
                     self._midi_out.enter_daw_mode()
-                    # Light all 16 pads briefly to verify
-                    print("[LED] Running blink test on all 16 pads (cyan)…")
-                    for n in range(36, 52):
+                    print("[LED] Running blink test on MK4 + MK4 Mini drum ranges (cyan)…")
+                    for n in list(range(36, 52)) + list(range(96, 112)):
                         self._midi_out.light_pad(n, 33)  # cyan
                     _t.sleep(0.8)
-                    for n in range(36, 52):
-                        self._midi_out.light_pad(n, 0)   # off
+                    for n in list(range(36, 52)) + list(range(96, 112)):
+                        self._midi_out.light_pad(n, 0)
                     print("[LED] Blink test done. LEDs active.")
                 else:
                     if attempts == 0:
                         print("[LED] Could not open MIDI output for LED feedback.")
-                        print("[LED] Possible reasons: another app holds the DAW port, ")
-                        print("[LED] device in non-Custom pad mode, or wrong product ID.")
                 attempts += 1
-            self.stop_evt.wait(15)   # retry every 15s
+            else:
+                # Re-send Programmer Mode periodically — some MK4 firmwares drop out of it.
+                self._midi_out.enter_daw_mode()
+            self.stop_evt.wait(20)
 
     def state_loop(self):
         prev_pad_state = {}
@@ -1083,11 +1087,16 @@ class HelperClient:
                     except: pass
                     break
             if pad_idx and 1 <= pad_idx <= 16:
-                note = 43 + pad_idx if 1 <= pad_idx <= 8 else 35 + (pad_idx - 8)
-                commands.append((9, note, color, f"pad-{pad_idx}"))
+                # Send to BOTH the MK3/MK4 (36-51) and MK4 Mini (96-111) drum notes
+                if 1 <= pad_idx <= 8:
+                    notes = [43 + pad_idx, 103 + pad_idx]   # top row: 44-51 / 104-111
+                else:
+                    notes = [35 + (pad_idx - 8), 95 + (pad_idx - 8)]  # bottom: 36-43 / 96-103
+                for note in notes:
+                    commands.append((9, note, color, f"pad-{pad_idx}-{note}"))
                 # Also light any learned alternate note for this UI pad
                 learned = self._physical_pads.get(f"pad-{pad_idx}")
-                if learned and learned[1] != note:
+                if learned and learned[1] not in notes:
                     commands.append((learned[0], learned[1], color, f"learned-pad-{pad_idx}"))
                 continue
 
@@ -1175,12 +1184,15 @@ class HelperClient:
                 #    Format: F0 00 20 29 02 <product> 03 00 <pad_addr> <color> F7
                 #    Pad address is tried as: raw note, 0x60 + lower-nibble, drum note (36 + n%16).
                 addresses = {n, 0x60 + (n & 0x0F), 0x40 + (n & 0x0F), 36 + (n & 0x0F)}
-                # MK4-specific: bottom row notes 36-43 → pad indices 0x60-0x67
-                # top row notes 44-51 → pad indices 0x68-0x6F. Add those too.
-                if 36 <= n <= 43:
+                # MK4 standard drum-note → pad-index mapping
+                if 36 <= n <= 43:   # bottom row → 0x60..0x67
                     addresses.add(0x60 + (n - 36))
-                if 44 <= n <= 51:
+                if 44 <= n <= 51:   # top row → 0x68..0x6F
                     addresses.add(0x68 + (n - 44))
+                # MK4 Mini native (where n IS already the pad index)
+                if 96 <= n <= 111:
+                    addresses.add(n)
+                    addresses.add(n - 96 + 0x60)   # normalize
                 for product in (0x0E, 0x0F, 0x13, 0x14, 0x11, 0x12):
                     for addr in addresses:
                         self._midi_out.send_sysex(bytes([
