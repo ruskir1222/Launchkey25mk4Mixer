@@ -3,7 +3,7 @@
   "name": "Launchkey Mixer Tab Bridge",
   "description": "Lets the Launchkey Mixer dashboard see and mute browser tabs on your Launchkey Mini MK4 25.",
   "version": "0.1.0",
-  "permissions": ["tabs", "storage"],
+  "permissions": ["tabs", "storage", "alarms"],
   "host_permissions": ["http://127.0.0.1:*/*", "http://localhost:*/*"],
   "background": {
     "service_worker": "background.js",

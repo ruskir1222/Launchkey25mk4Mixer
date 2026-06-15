@@ -1,33 +1,31 @@
 /**
- * Launchkey Mixer Tab Bridge — service worker
- * --------------------------------------------
+ * Launchkey Mixer Tab Bridge — service worker (MV3)
+ * --------------------------------------------------
  * Maintains a WebSocket connection to a local Launchkey Mixer instance
- * (`ws://127.0.0.1:8765/api/browser/ws` by default).
+ * (default `ws://127.0.0.1:8765/api/browser/ws`, falls back to :8001).
  *
- * Sends:    {"type": "tabs", "tabs": [...] }    on any tab update
- * Receives: {"type": "mute_tab", "selector": "tab:123" | "regex:youtube", "muted": true}
- *           {"type": "toggle_tab_mute", "selector": "..."}
- *           {"type": "focus_tab", "selector": "..."}
+ * MV3 service workers go idle after ~30s of inactivity, which breaks
+ * long-lived WebSockets. Strategy: chrome.alarms (only reliable wake-up
+ * mechanism in MV3) fires every 25s, reconnects WS if dead, and pushes a
+ * fresh tab snapshot.
  *
- * Selector formats:
- *   - "tab:<id>"      -> exact tab id
- *   - "regex:<text>"  -> case-insensitive substring match on tab.title OR tab.url
- *   - anything else   -> treated as a regex pattern too
+ * Sends:    {"type":"tabs", "tabs":[...]}     after every tab event
+ *           {"type":"ping"}                   keepalive
+ * Receives: {"type":"mute_tab", "selector":"tab:123" | "regex:youtube", "muted":true}
+ *           {"type":"toggle_tab_mute", "selector":"..."}
+ *           {"type":"focus_tab", "selector":"..."}
  */
 
-const DEFAULT_PORTS = [8765, 8001];
-const RECONNECT_MS = 3000;
-
+const PORTS = [8765, 8001];
+let portIndex = 0;
 let ws = null;
-let reconnectTimer = null;
-let currentPortIndex = 0;
+let connecting = false;
 
-function pickUrl() {
-  const port = DEFAULT_PORTS[currentPortIndex % DEFAULT_PORTS.length];
-  return `ws://127.0.0.1:${port}/api/browser/ws`;
+function wsUrl() {
+  return `ws://127.0.0.1:${PORTS[portIndex % PORTS.length]}/api/browser/ws`;
 }
 
-async function fetchTabs() {
+async function snapshotTabs() {
   const tabs = await chrome.tabs.query({});
   return tabs.map((t) => ({
     tabId: t.id,
@@ -41,11 +39,21 @@ async function fetchTabs() {
   }));
 }
 
-async function pushTabs() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+async function safeSend(payload) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   try {
-    const tabs = await fetchTabs();
-    ws.send(JSON.stringify({ type: "tabs", tabs }));
+    ws.send(JSON.stringify(payload));
+    return true;
+  } catch (e) {
+    console.warn("[LK] send failed", e);
+    return false;
+  }
+}
+
+async function pushTabs() {
+  try {
+    const tabs = await snapshotTabs();
+    await safeSend({ type: "tabs", tabs });
   } catch (e) {
     console.warn("[LK] pushTabs failed", e);
   }
@@ -57,42 +65,39 @@ function findMatchingTabs(selector, allTabs) {
     const id = parseInt(selector.slice(4), 10);
     return allTabs.filter((t) => t.id === id);
   }
-  const pattern = selector.startsWith("regex:") ? selector.slice(6) : selector;
+  const raw = selector.startsWith("regex:") ? selector.slice(6) : selector;
   let re;
-  try {
-    re = new RegExp(pattern, "i");
-  } catch {
-    // Treat as plain substring on regex parse error
-    const needle = pattern.toLowerCase();
-    return allTabs.filter(
-      (t) => (t.title || "").toLowerCase().includes(needle) || (t.url || "").toLowerCase().includes(needle),
-    );
-  }
-  return allTabs.filter((t) => re.test(t.title || "") || re.test(t.url || ""));
+  try { re = new RegExp(raw, "i"); } catch { re = null; }
+  if (re) return allTabs.filter((t) => re.test(t.title || "") || re.test(t.url || ""));
+  const needle = raw.toLowerCase();
+  return allTabs.filter(
+    (t) => (t.title || "").toLowerCase().includes(needle) || (t.url || "").toLowerCase().includes(needle),
+  );
 }
 
 async function handleCommand(msg) {
+  console.log("[LK] cmd:", msg);
+  if (msg.type === "hello") {
+    await pushTabs();
+    return;
+  }
+  if (msg.type === "pong") return;
+
   const allTabs = await chrome.tabs.query({});
   switch (msg.type) {
-    case "hello":
-      console.log("[LK] connected:", msg.server);
-      pushTabs();
-      break;
     case "mute_tab": {
-      const matches = findMatchingTabs(msg.selector, allTabs);
-      for (const t of matches) {
+      for (const t of findMatchingTabs(msg.selector, allTabs)) {
         await chrome.tabs.update(t.id, { muted: !!msg.muted });
       }
-      pushTabs();
+      await pushTabs();
       break;
     }
     case "toggle_tab_mute": {
-      const matches = findMatchingTabs(msg.selector, allTabs);
-      for (const t of matches) {
+      for (const t of findMatchingTabs(msg.selector, allTabs)) {
         const cur = t.mutedInfo && t.mutedInfo.muted;
         await chrome.tabs.update(t.id, { muted: !cur });
       }
-      pushTabs();
+      await pushTabs();
       break;
     }
     case "focus_tab": {
@@ -104,73 +109,72 @@ async function handleCommand(msg) {
       }
       break;
     }
-    case "pong":
-      break;
     default:
-      console.warn("[LK] unknown command", msg);
+      console.warn("[LK] unknown cmd", msg);
   }
 }
 
+function isAlive() {
+  return ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
+}
+
 function connect() {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  const url = pickUrl();
+  if (connecting) return;
+  if (isAlive()) return;
+  connecting = true;
+  const url = wsUrl();
+  console.log("[LK] connecting", url);
   try {
     ws = new WebSocket(url);
   } catch (e) {
-    console.warn("[LK] WS construct failed, retrying...", e);
-    scheduleReconnect();
+    console.warn("[LK] WS construct failed", e);
+    connecting = false;
+    portIndex += 1;
     return;
   }
 
   ws.addEventListener("open", () => {
-    console.log("[LK] WS open ->", url);
+    console.log("[LK] WS open", url);
+    connecting = false;
     pushTabs();
   });
   ws.addEventListener("message", (ev) => {
-    try {
-      const msg = JSON.parse(ev.data);
-      handleCommand(msg);
-    } catch (e) {
-      console.warn("[LK] bad msg", e);
-    }
+    try { handleCommand(JSON.parse(ev.data)); }
+    catch (e) { console.warn("[LK] bad msg", e); }
   });
   ws.addEventListener("close", () => {
-    console.log("[LK] WS closed; rotating port; reconnecting...");
-    currentPortIndex += 1;
-    scheduleReconnect();
+    console.log("[LK] WS closed");
+    connecting = false;
+    ws = null;
+    portIndex += 1;
   });
   ws.addEventListener("error", () => {
-    // 'close' will fire next — schedule there
+    // 'close' fires after — port rotation happens there
+    connecting = false;
   });
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) return;
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
+// --- chrome.alarms is the MV3-correct way to schedule periodic work ---
+// 0.25 min == 15s. (Minimum allowed for registered alarms is 30s on Chrome
+// stable for unpacked extensions; tighter intervals get rounded up.)
+chrome.alarms.create("keepalive", { periodInMinutes: 0.25 });
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== "keepalive") return;
+  if (!isAlive()) {
     connect();
-  }, RECONNECT_MS);
-}
+    return;
+  }
+  await safeSend({ type: "ping" });
+  await pushTabs();
+});
 
-// Push tab updates whenever they change
+// React immediately to tab events (within the SW's lifetime)
 chrome.tabs.onCreated.addListener(pushTabs);
 chrome.tabs.onUpdated.addListener(pushTabs);
 chrome.tabs.onRemoved.addListener(pushTabs);
 chrome.tabs.onActivated.addListener(pushTabs);
 
-// Keep the service worker awake-ish by pinging every 25s
-setInterval(() => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    try {
-      ws.send(JSON.stringify({ type: "ping" }));
-    } catch {}
-  }
-}, 25000);
-
-// Periodic resync (catches missed onAudibleChanged etc.)
-setInterval(pushTabs, 5000);
-
+// Initial connect at install / SW boot
+chrome.runtime.onStartup.addListener(connect);
+chrome.runtime.onInstalled.addListener(connect);
 connect();

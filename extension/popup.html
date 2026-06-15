@@ -19,14 +19,41 @@
         letter-spacing: 0.5px;
       }
       .status {
-        font-size: 13px;
+        font-size: 12px;
         padding: 8px 10px;
         border-radius: 6px;
         background: #1a1a1f;
         border: 1px solid #2a2a30;
+        line-height: 1.5;
       }
-      .ok { color: #4ade80; }
-      .bad { color: #f87171; }
+      .ok   { color: #4ade80; }
+      .warn { color: #fbbf24; }
+      .bad  { color: #f87171; }
+      button {
+        margin-left: 6px;
+        background: #ff6600;
+        color: #fff;
+        border: 0;
+        padding: 2px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+      }
+      #tabs {
+        margin-top: 10px;
+        max-height: 160px;
+        overflow: auto;
+        font-size: 11px;
+        font-family: ui-monospace, "Cascadia Mono", monospace;
+        color: #d4d4d4;
+      }
+      .tab {
+        padding: 3px 0;
+        border-bottom: 1px solid #1f1f24;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
       .small {
         margin-top: 12px;
         font-size: 11px;
@@ -44,6 +71,7 @@
   <body>
     <h1>LAUNCHKEY MIXER · TAB BRIDGE</h1>
     <div id="status" class="status">Connecting…</div>
+    <div id="tabs"></div>
     <div class="small">
       This extension lets your Launchkey Mixer dashboard mute or focus specific
       browser tabs. It only talks to <code>127.0.0.1</code> — no external traffic.
