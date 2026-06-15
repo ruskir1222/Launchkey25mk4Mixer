@@ -114,7 +114,7 @@ echo ============================================================
 pause
 
 echo Capturing to %CAPTURE_FILE% ...
-"!USBPCAP!" -d \\.\USBPcap!BUS! -o "%CAPTURE_FILE%"
+"!USBPCAP!" -d \\.\USBPcap!BUS! -A -o "%CAPTURE_FILE%"
 
 if not exist "%CAPTURE_FILE%" (
     echo.
