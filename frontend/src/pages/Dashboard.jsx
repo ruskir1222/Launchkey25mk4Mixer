@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import Header from "@/components/Header";
-import SessionsPanel from "@/components/SessionsPanel";
+import SourcesMixerPanel from "@/components/SourcesMixerPanel";
 import ProfilesPanel from "@/components/ProfilesPanel";
 import HardwareVisualizer from "@/components/HardwareVisualizer";
 import EventLog from "@/components/EventLog";
@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [mappings, setMappings] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [browserTabs, setBrowserTabs] = useState([]);
+  const [browserConnected, setBrowserConnected] = useState(false);
   const [helperStatus, setHelperStatus] = useState({ helper_connected: false });
   const [events, setEvents] = useState([]);
   const [midiLearn, setMidiLearn] = useState(false);
@@ -49,12 +50,13 @@ export default function Dashboard() {
         const [st, ss, bt] = await Promise.all([
           api.helperStatus(),
           api.helperSessions(),
-          api.browserTabs().catch(() => ({ tabs: [] })),
+          api.browserTabs().catch(() => ({ tabs: [], connected: false })),
         ]);
         if (stop) return;
         setHelperStatus(st);
         setSessions(ss.sessions || []);
         setBrowserTabs(bt.tabs || []);
+        setBrowserConnected(!!bt.connected);
       } catch (e) { /* offline */ }
     }
     tick();
@@ -192,8 +194,14 @@ export default function Dashboard() {
               />
             </CollapsibleSection>
 
-            <CollapsibleSection id="sessions" title="live audio sessions" defaultOpen>
-              <SessionsPanel sessions={sessions} helperConnected={helperStatus.helper_connected} />
+            <CollapsibleSection id="sessions" title="sources mixer" defaultOpen>
+              <SourcesMixerPanel
+                sessions={sessions}
+                browserTabs={browserTabs}
+                mappings={mappings}
+                helperConnected={helperStatus.helper_connected}
+                browserConnected={browserConnected}
+              />
             </CollapsibleSection>
           </aside>
 
@@ -204,6 +212,7 @@ export default function Dashboard() {
               midiLearn={midiLearn}
               learnTarget={learnTarget}
               sessions={sessions}
+              browserTabs={browserTabs}
               onControlClick={onControlClick}
             />
             <CollapsibleSection

@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import CollapsibleSection from "@/components/CollapsibleSection";
+import { resolve as resolveSource } from "@/lib/sources";
 
 // Build N white-key + black-key pattern starting from C (W)
 function buildKeys(count = 25) {
@@ -127,7 +128,7 @@ function ModePill({ label, active = false }) {
   );
 }
 
-export default function HardwareVisualizer({ mappingByControl, flashControl, midiLearn, learnTarget, sessions, onControlClick }) {
+export default function HardwareVisualizer({ mappingByControl, flashControl, midiLearn, learnTarget, sessions, browserTabs = [], onControlClick }) {
   const keys = buildKeys(25);
   const [activeFlash, setActiveFlash] = useState(null);
 
@@ -190,12 +191,17 @@ export default function HardwareVisualizer({ mappingByControl, flashControl, mid
             </div>
           </div>
           <div className="flex gap-3 justify-between pb-5 px-1">
-            {Array.from({ length: 8 }, (_, i) => (
-              <Knob key={i + 1} idx={i + 1}
-                assigned={map[`knob-${i + 1}`]}
-                flashing={isFlashing(`knob-${i + 1}`)}
-                onClick={() => onControlClick(`knob-${i + 1}`)} />
-            ))}
+            {Array.from({ length: 8 }, (_, i) => {
+              const id = `knob-${i + 1}`;
+              const m = map[id];
+              return (
+                <Knob key={i + 1} idx={i + 1}
+                  assigned={m}
+                  source={resolveSource(m, sessions, browserTabs)}
+                  flashing={isFlashing(id)}
+                  onClick={() => onControlClick(id)} />
+              );
+            })}
           </div>
         </div>
 
