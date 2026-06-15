@@ -1,118 +1,173 @@
 @echo off
 REM ==================================================================
-REM Launchkey Mini MK4 25 — SysEx Sniff Helper (v2)
-REM ==================================================================
-REM USBPcap requires Administrator privileges. If you double-click this
-REM file and it closes, right-click -> "Run as administrator".
+REM Launchkey Mini MK4 25 — SysEx Sniff Helper (v3)
+REM
+REM Bulletproof version: every code path ends at the :end label which
+REM ALWAYS pauses, so the cmd window never disappears before you can
+REM read what happened.
 REM ==================================================================
 
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-set USBPCAP="C:\Program Files\USBPcap\USBPcapCMD.exe"
-set CAPTURE_FILE=launchkey_capture.pcap
-set DECODED_FILE=decoded.txt
+set "STATUS=unknown"
+set "CAPTURE_FILE=launchkey_capture.pcap"
+set "DECODED_FILE=decoded.txt"
 
-REM --- Sanity: USBPcap installed? -----------------------------------
-if not exist %USBPCAP% (
+echo.
+echo ============================================================
+echo  LAUNCHKEY MK4 MINI - SysEx Capture (script started)
+echo ============================================================
+echo.
+echo Working dir: %CD%
+echo.
+
+REM --- Locate USBPcap in either Program Files variant -------------
+set "USBPCAP="
+if exist "C:\Program Files\USBPcap\USBPcapCMD.exe"       set "USBPCAP=C:\Program Files\USBPcap\USBPcapCMD.exe"
+if exist "C:\Program Files (x86)\USBPcap\USBPcapCMD.exe" set "USBPCAP=C:\Program Files (x86)\USBPcap\USBPcapCMD.exe"
+
+if "!USBPCAP!"=="" (
+    echo USBPcap not found in:
+    echo   C:\Program Files\USBPcap\USBPcapCMD.exe
+    echo   C:\Program Files ^(x86^)\USBPcap\USBPcapCMD.exe
     echo.
-    echo USBPcap not found at %USBPCAP%
+    echo Install it first:
+    echo   1^) Open PowerShell as administrator
+    echo   2^) winget install -e --id USBPcap.USBPcap
+    echo   3^) REBOOT, then re-run this script.
     echo.
-    echo Install it from PowerShell (admin):  winget install -e --id USBPcap.USBPcap
-    echo Or download:  https://desowin.org/usbpcap/
-    echo.
-    echo *** Reboot after install. Then re-run this script. ***
-    echo.
-    pause
-    exit /b 1
+    set "STATUS=usbpcap_missing"
+    goto :end
 )
+echo Found USBPcap at: !USBPCAP!
+echo.
 
-REM --- Sanity: are we elevated? -------------------------------------
+REM --- Check admin elevation --------------------------------------
 net session >nul 2>&1
 if errorlevel 1 (
+    echo *** Not running as Administrator. ***
+    echo USBPcap needs admin to capture USB traffic.
     echo.
-    echo *** This script needs to run as ADMINISTRATOR. ***
-    echo Close this window, right-click capture.bat, choose "Run as administrator".
+    echo Close this window, right-click capture.bat, choose
+    echo "Run as administrator", and try again.
     echo.
-    pause
-    exit /b 1
+    set "STATUS=not_admin"
+    goto :end
+)
+echo Running with admin privileges. OK.
+echo.
+
+REM --- Check tshark (decoder needs it) ----------------------------
+set "TSHARK="
+if exist "C:\Program Files\Wireshark\tshark.exe"       set "TSHARK=C:\Program Files\Wireshark\tshark.exe"
+if exist "C:\Program Files (x86)\Wireshark\tshark.exe" set "TSHARK=C:\Program Files (x86)\Wireshark\tshark.exe"
+
+if "!TSHARK!"=="" (
+    echo WARNING: tshark not found. The capture step will work, but the
+    echo decode step will fail. Install Wireshark to get tshark:
+    echo   winget install -e --id WiresharkFoundation.Wireshark
+    echo Continuing anyway - you can decode the .pcap later.
+    echo.
+) else (
+    echo Found tshark at: !TSHARK!
+    set "PATH=!PATH!;C:\Program Files\Wireshark;C:\Program Files (x86)\Wireshark"
+    echo.
 )
 
-echo.
+REM --- List buses ------------------------------------------------
 echo ============================================================
-echo  LAUNCHKEY MK4 MINI - SysEx Capture
+echo  Step 1) Listing USB buses. Find the one that includes your
+echo          Launchkey Mini MK4 25 in the device tree below.
 echo ============================================================
 echo.
-echo Step 1) Listing USB buses and what's connected to each.
-echo         Find the bus that lists your Launchkey Mini MK4 25.
+"!USBPCAP!" --extcap-interfaces 2>&1
 echo.
-%USBPCAP% --extcap-interfaces 2>&1
-echo.
-echo (If nothing showed up, USBPcap is not loaded - try a reboot.)
+echo (If nothing was listed above, USBPcap driver is not loaded -
+echo  try a reboot.)
 echo.
 
-set /p BUS=Step 2) Enter the bus NUMBER your Launchkey is on (just the digit, e.g. 1): 
+set "BUS="
+set /p BUS=Step 2) Enter the bus number (e.g. 1, 2, 3): 
+
 if "!BUS!"=="" (
     echo No bus entered. Exiting.
-    pause
-    exit /b 1
+    set "STATUS=no_bus_entered"
+    goto :end
 )
 
-if exist %CAPTURE_FILE% del /Q %CAPTURE_FILE%
+if exist "%CAPTURE_FILE%" del /Q "%CAPTURE_FILE%"
 
 echo.
 echo ============================================================
-echo  RECORDING starts when you press a key.
-echo  Then:
-echo   1. Open Novation Components
-echo   2. Set Pad 1 red, Pad 2 green, Pad 3 blue (etc., one color each)
-echo   3. Click "Send to Launchkey"
-echo   4. Change the Custom mode name to HELLO, send again
-echo   5. Turn knob 1 from 0 -^> 100 -^> 0 (volume mode)
+echo  Step 3) RECORDING is about to start on \\.\USBPcap!BUS!
 echo.
-echo  When done, COME BACK to this window and press Ctrl+C ONCE to stop.
+echo  Press any key here, then immediately:
+echo    1. Open Novation Components
+echo    2. Set Pad 1 RED, Pad 2 GREEN, Pad 3 BLUE etc. (any 4-8 colors)
+echo    3. Click "Send to Launchkey"
+echo    4. Change Custom mode name to "HELLO", send again
+echo    5. Switch to volume mode, turn knob 1 from 0 to 100 and back
+echo.
+echo  WHEN DONE: come back to this window and press Ctrl+C to stop.
 echo ============================================================
 pause
 
-echo Starting capture on \\.\USBPcap!BUS! ...
-%USBPCAP% -d \\.\USBPcap!BUS! -o %CAPTURE_FILE%
+echo Capturing to %CAPTURE_FILE% ...
+"!USBPCAP!" -d \\.\USBPcap!BUS! -o "%CAPTURE_FILE%"
 
-if not exist %CAPTURE_FILE% (
+if not exist "%CAPTURE_FILE%" (
     echo.
-    echo *** No capture file was produced. USBPcap may have errored. ***
-    echo Try a different bus number. The number from --extcap-interfaces above
-    echo is what you should enter (e.g. if it shows \\.\USBPcap1 enter "1").
-    echo.
-    pause
-    exit /b 1
+    echo *** No capture file produced. The bus number may have been wrong,
+    echo *** or no USB traffic occurred on that bus during the capture.
+    echo *** Try running again and pick a different bus number.
+    set "STATUS=no_capture"
+    goto :end
 )
-
 echo.
+echo Capture saved: %CAPTURE_FILE%
+echo.
+
 echo ============================================================
-echo  DECODING capture...
+echo  Step 4) Decoding capture into %DECODED_FILE% ...
 echo ============================================================
-set PY=python
+set "PY=python"
 where python >nul 2>&1
 if errorlevel 1 (
-    set PY=py -3
+    where py >nul 2>&1
+    if errorlevel 1 (
+        echo Python not found - install from python.org and re-run parse_pcap.py manually.
+        set "STATUS=no_python"
+        goto :end
+    )
+    set "PY=py -3"
 )
 
-%PY% parse_pcap.py %CAPTURE_FILE% --out %DECODED_FILE%
+%PY% parse_pcap.py "%CAPTURE_FILE%" --out "%DECODED_FILE%"
 if errorlevel 1 (
-    echo.
-    echo *** Decode failed. Make sure Wireshark is installed (provides tshark.exe). ***
-    echo winget install -e --id WiresharkFoundation.Wireshark
-    echo.
-    pause
-    exit /b 1
+    echo *** Decode failed. Common cause: tshark not on PATH.
+    echo *** Install Wireshark: winget install -e --id WiresharkFoundation.Wireshark
+    set "STATUS=decode_failed"
+    goto :end
 )
 
+set "STATUS=success"
+
+:end
 echo.
 echo ============================================================
-echo  DONE.
-echo   Raw capture:  %CD%\%CAPTURE_FILE%
-echo   Decoded:      %CD%\%DECODED_FILE%
-echo.
-echo  Paste the contents of %DECODED_FILE% into the chat.
+if "!STATUS!"=="success" (
+    echo  DONE - STATUS: success
+    echo   Raw capture:   %CD%\%CAPTURE_FILE%
+    echo   Decoded text:  %CD%\%DECODED_FILE%
+    echo.
+    echo  Open %DECODED_FILE% in Notepad and paste contents into chat.
+) else (
+    echo  EXIT STATUS: !STATUS!
+    echo  See messages above for what went wrong.
+)
 echo ============================================================
-pause
+echo.
+echo Press any key to close this window...
+pause >nul
+exit /b 0
