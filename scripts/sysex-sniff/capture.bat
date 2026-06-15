@@ -116,17 +116,20 @@ pause
 echo Capturing to %CAPTURE_FILE% ...
 "!USBPCAP!" -d \\.\USBPcap!BUS! -A -o "%CAPTURE_FILE%"
 
-if not exist "%CAPTURE_FILE%" (
+REM Report file size so user knows if the bus was correct
+for %%A in ("%CAPTURE_FILE%") do set CAP_SIZE=%%~zA
+echo.
+echo Capture file size: !CAP_SIZE! bytes
+if !CAP_SIZE! LSS 100 (
     echo.
-    echo *** No capture file produced. The bus number may have been wrong,
-    echo *** or no USB traffic occurred on that bus during the capture.
-    echo *** Try running again and pick a different bus number.
-    set "STATUS=no_capture"
+    echo *** Capture is empty / tiny - bus !BUS! probably wasn't the Launchkey.
+    echo *** Re-run this script and try a different bus number.
+    echo *** With 5 buses to choose from, common right answer is bus 3, 4 or 5.
+    set "STATUS=empty_capture_wrong_bus"
     goto :end
 )
 echo.
-echo Capture saved: %CAPTURE_FILE%
-echo.
+echo OK - capture has data. Proceeding to decode.
 
 echo ============================================================
 echo  Step 4) Decoding capture into %DECODED_FILE% ...
