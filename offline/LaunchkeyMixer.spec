@@ -30,6 +30,14 @@ a = Analysis(
         *anyio_modules,
         'h11',
         'sniffio',
+        # WebSocket protocol implementations (uvicorn needs at least one for WS upgrades)
+        'websockets',
+        'websockets.legacy',
+        'websockets.legacy.server',
+        'websockets.legacy.client',
+        'wsproto',
+        'wsproto.connection',
+        'wsproto.events',
         # Helper deps — explicitly listed because launchkey_helper is loaded
         # dynamically and PyInstaller's static analysis can't see them.
         'requests',

@@ -33,6 +33,11 @@ import uvicorn
 # These imports are not used directly here but ensure PyInstaller bundles them
 # (launchkey_helper is loaded dynamically and its deps aren't statically visible).
 import requests  # noqa: F401
+import websockets  # noqa: F401  - WebSocket protocol for /api/browser/ws
+try:
+    import wsproto  # noqa: F401  - alternative WS implementation uvicorn can use
+except Exception:
+    pass
 try:
     import pycaw  # noqa: F401
     import pycaw.pycaw  # noqa: F401
