@@ -30,18 +30,55 @@ function Pad({ idx, assigned, flashing, targeting, active, onClick }) {
   );
 }
 
-function Knob({ idx, assigned, flashing, targeting, active, onClick }) {
+function ChannelStrip({ source }) {
+  // Tiny under-knob mini-mixer strip. Renders nothing if there's no source.
+  if (!source) return <span className="text-[9px] font-mono text-neutral-700">—</span>;
+  const pct = Math.round((source.volume || 0) * 100);
+  const isMuted = source.muted;
+  const isMissing = source.missing;
+  const colorBar = isMuted ? 'bg-red-500/40' : isMissing ? 'bg-neutral-700' : 'bg-brand';
+  return (
+    <div className="w-full flex flex-col items-center gap-0.5 px-0.5">
+      <div className="flex items-center gap-0.5 max-w-full">
+        {source.icon && (
+          <img src={source.icon} alt="" className="w-2.5 h-2.5 rounded-sm" onError={(e) => (e.target.style.display = 'none')} />
+        )}
+        <span
+          className={`text-[8.5px] font-mono truncate leading-tight ${
+            isMuted ? 'text-red-400' : isMissing ? 'text-neutral-600' : source.audible ? 'text-brand' : 'text-neutral-400'
+          }`}
+          title={source.label}
+        >
+          {isMuted ? '🔇 ' : ''}
+          {source.label}
+        </span>
+      </div>
+      {source.kind === 'app' && !isMissing && (
+        <div className="w-full h-0.5 bg-neutral-800 rounded-full overflow-hidden">
+          <div className={`h-full ${colorBar} transition-all`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Knob({ idx, assigned, source, flashing, targeting, active, onClick }) {
   const angle = assigned ? 90 : -45;
   return (
-    <button
-      data-testid={LK.knob(idx)}
-      onClick={onClick}
-      className={`knob mk4-knob ${assigned ? 'assigned' : ''} ${flashing ? 'pulse-accent' : ''} ${targeting ? 'targeting' : ''} ${active ? 'active' : ''}`}
-      title={`Encoder ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}${active ? ' · ACTIVE' : ''}`}
-    >
-      <div className="knob-indicator" style={{ transform: `translateX(-50%) rotate(${angle}deg)` }} />
-      <span className="text-[9px] font-mono text-neutral-500 absolute -bottom-4">E{idx}</span>
-    </button>
+    <div className="flex flex-col items-center gap-1 min-w-0 flex-1">
+      <button
+        data-testid={LK.knob(idx)}
+        onClick={onClick}
+        className={`knob mk4-knob ${assigned ? 'assigned' : ''} ${flashing ? 'pulse-accent' : ''} ${targeting ? 'targeting' : ''} ${active ? 'active' : ''}`}
+        title={`Encoder ${idx}${assigned ? ` — ${assigned.label || assigned.action_type}` : ''}${active ? ' · ACTIVE' : ''}`}
+      >
+        <div className="knob-indicator" style={{ transform: `translateX(-50%) rotate(${angle}deg)` }} />
+        <span className="text-[9px] font-mono text-neutral-500 absolute -bottom-4">E{idx}</span>
+      </button>
+      <div className="mt-4 w-full max-w-[68px] min-h-[18px]">
+        <ChannelStrip source={source} />
+      </div>
+    </div>
   );
 }
 
