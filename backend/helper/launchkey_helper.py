@@ -613,6 +613,51 @@ class MidiOut:
         except Exception as e:
             print(f"[LED] sysex error: {e}")
 
+    # -----------------------------------------------------------------
+    # Launchkey Mini MK4 25 — specific SysEx commands discovered via
+    # USBPcap sniffing of Novation Components. Confirmed working on
+    # firmware as of Feb 2026.
+    #
+    # Frame:  F0 00 20 29 02 13 [opcode-or-subop] [payload...] F7
+    #          ↑ Novation MFR    ↑ MK4 Mini family/op
+    # -----------------------------------------------------------------
+    MK4_HEADER = b"\x00\x20\x29\x02\x13"
+
+    def mk4_lcd_text(self, text: str, line: int = 0x41):
+        """Write text to the MK4 Mini's small LCD.
+
+        line=0x00 -> top "section" label (e.g. 'Pad Mode')
+        line=0x41 -> main text field (e.g. patch name 'HELLO')
+
+        Text is encoded as ASCII, non-ASCII replaced with '?'. Length is
+        clamped to 32 bytes (the LCD truncates beyond that anyway).
+        """
+        if not text:
+            return
+        safe = text.encode("ascii", "replace")[:32]
+        # Real frame Components uses:  06 21 [line] [text...]
+        self.send_sysex(self.MK4_HEADER + b"\x06\x21" + bytes([line & 0x7F]) + safe)
+
+    def mk4_pad_color(self, pad_note: int, palette_index: int):
+        """Per-pad RGB LED via the MK3-style Note-On ch16 message.
+        EXPERIMENTAL — needs hardware testing on the user's MK4 Mini
+        firmware. If unsupported, the device will silently ignore it.
+
+        palette_index follows the standard Novation 0-127 palette:
+            0x00 off · 0x05 red · 0x0D yellow · 0x15 green
+            0x29 cyan · 0x2D blue · 0x35 magenta · 0x03 white
+        """
+        self.send_short(0x9F, pad_note & 0x7F, palette_index & 0x7F)
+
+    def mk4_lcd_show_app(self, name: str, volume_pct: int = None):
+        """Convenience: show "AppName" on top line and volume on the
+        sub-text line. Called by the dispatcher when an audio mapping
+        fires so the LCD updates with what's being controlled."""
+        if name:
+            self.mk4_lcd_text(name[:16], line=0x00)
+        if volume_pct is not None:
+            self.mk4_lcd_text(f"{volume_pct:>3d}%", line=0x41)
+
     def enter_daw_mode(self):
         """Tell the Launchkey to accept host-driven pad LED commands.
         For MK4 / MK4 Mini we ALSO send the Programmer-Mode handshake which is
@@ -865,7 +910,7 @@ def pick_backend() -> MidiBackend:
 # Dispatcher
 # ============================================================
 class Dispatcher:
-    def __init__(self, browser_cmd=None):
+    def __init__(self, browser_cmd=None, lcd_cb=None):
         self.mappings: Dict[str, Dict[str, Any]] = {}
         # Per-control press state. Used so velocity pads behave as clean
         # momentary switches (one event per press/release cycle).
@@ -873,6 +918,9 @@ class Dispatcher:
         # Optional callback to send commands to the browser extension
         # (signature: browser_cmd(payload_dict) -> None).
         self._browser_cmd = browser_cmd
+        # Optional callback to update the MK4 Mini LCD
+        # (signature: lcd_cb(app_name: str, volume_pct: int) -> None).
+        self._lcd = lcd_cb
 
     def update_mappings(self, mappings: List[Dict[str, Any]]):
         self.mappings = {m["control_id"]: m for m in mappings}
@@ -926,6 +974,9 @@ class Dispatcher:
                 if params.get("invert"):
                     vol = 1.0 - vol
                 set_app_volume(target, vol)
+                if self._lcd:
+                    try: self._lcd(target, int(vol * 100))
+                    except Exception: pass
                 return True
 
             if action == "system_volume" and msg.type == "control_change":
@@ -933,6 +984,9 @@ class Dispatcher:
                 if params.get("invert"):
                     vol = 1.0 - vol
                 set_master_volume(vol)
+                if self._lcd:
+                    try: self._lcd("System", int(vol * 100))
+                    except Exception: pass
                 return True
 
             # ---- Trigger actions (momentary-switch edge-detected) ----
@@ -1016,7 +1070,10 @@ class HelperClient:
         self.backend = backend
         self.midi_port_name: Optional[str] = None
         self.device_connected = False
-        self.dispatcher = Dispatcher(browser_cmd=self._send_browser_cmd)
+        self.dispatcher = Dispatcher(
+            browser_cmd=self._send_browser_cmd,
+            lcd_cb=self._lcd_update,
+        )
         self.stop_evt = threading.Event()
         # Async report pipeline so MIDI events never block on HTTP
         self._report_q: "queue.Queue[dict]" = queue.Queue(maxsize=64)
@@ -1040,6 +1097,33 @@ class HelperClient:
         except Exception as e:
             if DEBUG:
                 print(f"[BROWSER] cmd failed: {e}")
+
+    def _lcd_update(self, app_name: str, volume_pct: int):
+        """Push the active source name + volume to the MK4 Mini LCD."""
+        try:
+            self._ensure_led_port()
+            self._midi_out.mk4_lcd_show_app(app_name, volume_pct)
+        except Exception as e:
+            if DEBUG:
+                print(f"[LCD] update failed: {e}")
+
+    def _ensure_led_port(self) -> bool:
+        """Lazily open the Launchkey MIDI OUT port for LED + LCD writes.
+        Returns True if the port is open and ready."""
+        if self._midi_out.opened:
+            return True
+        if self._led_opened_once:
+            # Don't keep retrying every event if it failed once.
+            return False
+        self._led_opened_once = True
+        try:
+            ok = self._midi_out.open("launchkey")
+            if ok and DEBUG:
+                print("[LED] MIDI OUT opened.")
+            return ok
+        except Exception as e:
+            print(f"[LED] failed to open MIDI OUT: {e}")
+            return False
 
     def post(self, path, body):
         try:
